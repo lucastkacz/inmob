@@ -255,3 +255,68 @@ AWS Architecture Blog recommends jittered exponential backoff to spread retry sp
 - Acquisition becomes more polite and resilient.
 - Retry behavior becomes predictable and auditable.
 - Traffic policy must be external to parser and analytical logic.
+
+## DEC-010 - Start with a Lean Vertical Slice
+
+Status: Accepted
+
+### Context
+
+The architecture protects replayability, isolation, and analytical integrity, but a fully built platform would introduce unnecessary moving parts before the system has proven source behavior, canonical fields, failure modes, and analytical value.
+
+### Decision
+
+The first implementation will be a single-repository, single-process vertical slice:
+
+1. Acquire one real source.
+2. Persist raw artifacts and metadata sidecars.
+3. Parse into one versioned canonical listing model.
+4. Validate and quarantine failures as data.
+5. Produce a small enriched output with lineage.
+6. Support manual replay from persisted raw artifacts.
+
+No queue, microservice boundary, scheduler, workflow engine, schema registry, data warehouse, metadata server, or dashboard is allowed in the MVP unless a concrete measured constraint requires it.
+
+### Grounding
+
+This applies the "best part is no part" product-engineering principle to the architecture: remove components that do not currently create necessary value.
+
+It also stays compatible with the Unix philosophy of small composable tools and with the existing persisted-boundary decisions: [Unix philosophy](https://en.wikipedia.org/wiki/Unix_philosophy).
+
+### Consequences
+
+- The MVP can be built and debugged quickly.
+- Architecture remains testable through files and deterministic commands.
+- Some operational capabilities remain manual at first.
+- Upgrade triggers must be explicit so "lean" does not become under-engineered.
+
+## DEC-011 - Prefer Proven Public Libraries Over Custom Platform Plumbing
+
+Status: Accepted
+
+### Context
+
+Scraping, browser automation, validation, local analytics, and entity resolution are solved well enough by existing open-source tools. Rebuilding these foundations would create maintenance burden without improving the domain model.
+
+### Decision
+
+The project will prefer established public libraries for generic plumbing and reserve custom code for:
+
+- Source-specific acquisition configuration
+- Source-specific parsing
+- Canonical mapping
+- Domain validation rules
+- Analytical feature definitions
+
+Initial candidate libraries are documented in [[07 - Lean Implementation Path]].
+
+### Grounding
+
+This follows the architecture rule that business logic should stay isolated from external details while also keeping implementation efficient.
+
+### Consequences
+
+- Faster MVP delivery.
+- Less custom infrastructure to maintain.
+- Dependency choice must remain reversible.
+- Library adoption must be justified by a real current need, not future anxiety.

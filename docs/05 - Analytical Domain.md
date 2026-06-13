@@ -6,6 +6,8 @@ This document defines the conceptual responsibilities of the analytical domain.
 
 The analytical domain begins after standardization and validation. It operates only on canonical, validated, source-agnostic data.
 
+Lean constraint: the first analytical domain should explain and preserve evidence. It should not pretend to make final investment decisions.
+
 ## Domain Boundary
 
 The analytical domain must not know:
@@ -30,6 +32,8 @@ The analytical domain may know:
 This follows Clean Architecture's separation between business rules and external details: [Clean Coder - The Clean Architecture](https://blog.cleancoder.com/uncle-bob/2012/08/13/the-clean-architecture.html).
 
 ## Core Analytical Capabilities
+
+The following capabilities are the target domain. They should not all be built on day one.
 
 ### Entity Resolution
 
@@ -78,6 +82,24 @@ Feature definitions must be versioned because changes to formulas alter analytic
 Opportunity Detection flags properties that may be undervalued, unusual, inconsistent, or worth manual review.
 
 This capability must depend on derived features and validated canonical data, not on raw source payloads.
+
+## MVP Analytical Scope
+
+Start with:
+
+- Basic price-per-area metrics
+- Original and reference currency context
+- Duplicate candidates, not automatic merges
+- Manual-review flags, not final opportunity scores
+- Lineage from each output back to canonical listings and raw artifacts
+
+Defer:
+
+- Machine learning
+- Automated valuation models
+- Complex geo-spatial analysis
+- Full confidence scoring
+- Irreversible deduplication decisions
 
 ## Analytical Inputs
 

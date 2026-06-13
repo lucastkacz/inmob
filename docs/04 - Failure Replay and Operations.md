@@ -6,6 +6,8 @@ This document defines the operational architecture for orchestration, failure is
 
 The processing layers must remain focused on their own responsibilities. Operational sequencing and monitoring belong to a separate control plane.
 
+Lean constraint: the first control plane is a CLI plus run manifests. A workflow engine is a later upgrade, not a starting point.
+
 ## Control Plane
 
 ### Responsibility
@@ -31,6 +33,18 @@ The control plane must not:
 - Deduplicate properties
 - Compute analytical metrics
 - Own source-specific business logic
+
+### Lean Starting Point
+
+Start with CLI commands:
+
+- `acquire`
+- `standardize`
+- `enrich`
+- `run`
+- `replay`
+
+Each command writes a run manifest and exits with a clear status. This keeps operations observable without introducing an orchestration product.
 
 ### Source Grounding
 
@@ -143,6 +157,10 @@ Replay must identify:
 
 Replay depends on immutable raw capture and lineage.
 
+### Lean Replay Rule
+
+Replay is file-based at first: select raw artifact paths, parser version, contract version, and target output directory. Do not build a replay UI or scheduler until operators need repeated replay workflows.
+
 ## Observability
 
 The platform must produce operational signals without coupling business logic to monitoring tools.
@@ -177,6 +195,8 @@ The Token Bucket pattern allows natural bursts while enforcing a long-term avera
 
 In this architecture, Token Bucket belongs to acquisition governance and the control plane. It must not be embedded in parsing or analytical logic.
 
+Lean interpretation: start with per-source concurrency of one and a simple delay/backoff policy. Add a real token bucket only when multiple acquisition workers or burst behavior exist.
+
 ### Exponential Backoff with Full Jitter
 
 Use exponential backoff with jitter when retrying remote acquisition failures or rate-limit responses.
@@ -198,6 +218,8 @@ Examples:
 - Quarantine volume exceeded expected baseline
 
 Alerts should link to diagnostic artifacts rather than only textual logs.
+
+Lean interpretation: start with terminal output and manifest summaries. Add external alerting only after scheduled unattended runs exist.
 
 ## Summary
 

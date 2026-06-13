@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document defines the top-level architecture of the property listings data platform. It exists to align the system around stable architectural principles before implementation choices are made.
+This document defines the top-level architecture of the property listings data platform. It exists to align the system around stable architectural principles while keeping the first implementation lean.
 
 The platform must ingest property listings from multiple independent websites, preserve source data, standardize heterogeneous payloads, and support analytical business logic without coupling that business logic to external source volatility.
 
@@ -16,19 +16,18 @@ This document covers:
 - Core principles
 - Quality attributes
 - Source-backed architectural grounding
+- Lean implementation constraints
 
 This document does not cover:
 
-- Programming languages
-- Frameworks
-- Databases
 - Cloud providers
-- Specific scraping libraries
 - Deployment topology
 
 ## Architectural Intent
 
 The system is a source-agnostic, replayable, and fault-isolated data platform for real estate listing intelligence.
+
+The first implementation should be the smallest vertical slice that proves the architecture against a real source. The preferred shape is one repository, one local CLI, one persisted artifact tree, and one source adapter. Components are added only when removing them would create a measured failure.
 
 The core architectural intent is to separate three kinds of change:
 
@@ -40,13 +39,15 @@ These changes must not force each other to change unnecessarily.
 
 ## Core Architecture
 
-The platform follows a Multi-Hop Immutable Data Pipeline:
+The platform follows a Lean Multi-Hop Immutable Data Pipeline:
 
 1. Raw Ingestion
 2. Standardization and Validation
 3. Analytical Enrichment
 
-Each layer writes durable artifacts to a persistence boundary. The next layer reads those artifacts. Layers do not communicate through direct calls, shared memory, or hidden runtime state.
+Each layer writes durable artifacts to a persistence boundary. The next layer reads those artifacts. Layers do not communicate through hidden runtime state.
+
+Lean interpretation: these layers are logical boundaries first, not deployment units. In the MVP, they may be functions or modules inside one process as long as their inputs and outputs are persisted and versioned.
 
 This structure is aligned with the Medallion Architecture concept, where raw data is progressively refined into cleaned, conformed, and business-ready data. Databricks describes this as a multi-hop architecture with Bronze, Silver, and Gold layers for progressive data quality refinement: [Databricks - What is Medallion Architecture?](https://www.databricks.com/glossary/medallion-architecture).
 
@@ -114,7 +115,17 @@ Logs are useful for operators, but they are not a substitute for replayable fail
 
 ### 7. Operations Are Controlled Externally
 
-Pipeline execution is coordinated by an operational control plane. Processing layers should expose status and outcomes, but the sequencing and monitoring of execution belong outside the business logic.
+Pipeline execution is coordinated outside the business logic. In the MVP this can be a thin CLI command plus a run manifest, not a workflow platform.
+
+### 8. Best Part Is No Part
+
+Every component must justify its existence against a current constraint.
+
+Do not introduce a queue, scheduler, data warehouse, service boundary, schema registry, lineage server, feature store, dashboard, or distributed runtime by default. Prefer files, explicit contracts, deterministic scripts, and small library calls until volume, concurrency, collaboration, or operational risk proves the need for more.
+
+### 9. Prefer Libraries Over Custom Infrastructure
+
+Use established public libraries for crawling, browser automation, validation, tabular processing, storage, and entity resolution when they fit the problem. Custom code should express domain rules and source-specific translation, not rebuild solved platform plumbing.
 
 ## Architecture Views
 
@@ -153,8 +164,12 @@ Acquisition must respect traffic limits, backoff behavior, and source stability.
 
 Business conclusions must be based on validated, canonical, source-agnostic data.
 
+### Simplicity
+
+The architecture must stay small enough that one developer can run, inspect, replay, and debug the full vertical slice locally.
+
 ## Summary
 
 The platform is not a scraper with analytics attached. It is a data architecture where acquisition, standardization, validation, and analytical reasoning are separated by durable contracts.
 
-The top-level design priority is to preserve data and isolate change.
+The top-level design priority is to preserve data, isolate change, and avoid parts that do not yet pay rent.

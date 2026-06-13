@@ -6,6 +6,8 @@ This document defines the three conceptual layers of the platform and the respon
 
 The pipeline is intentionally split into persisted hops so that external volatility, data interpretation, and analytical business logic can evolve independently.
 
+Lean constraint: a layer is a contract boundary, not necessarily a separate service. The MVP should run as a single local command that writes explicit artifacts between steps.
+
 ## Layer Summary
 
 | Layer | Name | Primary Responsibility | Output |
@@ -13,6 +15,20 @@ The pipeline is intentionally split into persisted hops so that external volatil
 | 1 | Raw Ingestion | Acquire and persist source payloads exactly as received | Raw Artifact |
 | 2 | Standardization and Validation | Convert raw artifacts into canonical validated records | Canonical Listing or Quarantine Artifact |
 | 3 | Analytical Enrichment | Apply business logic to clean source-agnostic records | Enriched Property Entity |
+
+## MVP Runtime Shape
+
+The first implementation should be boring:
+
+- One repository
+- One CLI entrypoint
+- One source adapter
+- One local artifact directory
+- One canonical listing model
+- One quarantine path
+- One replay command
+
+Do not add a message broker, distributed worker, API server, workflow engine, data warehouse, object store, or dashboard until the local vertical slice fails for a specific measured reason.
 
 This aligns with the Medallion Architecture concept of progressively refining raw data into cleaned and business-ready data: [Databricks - What is Medallion Architecture?](https://www.databricks.com/glossary/medallion-architecture).
 
@@ -71,6 +87,17 @@ Raw Ingestion must not know:
 The output is a Raw Artifact.
 
 The Raw Artifact is immutable by default and becomes the replayable source of truth for downstream transformation.
+
+### Lean Starting Point
+
+Start by storing:
+
+- Raw payload file
+- Metadata sidecar
+- Checksum
+- Acquisition run identifier
+
+Avoid browser automation unless a source requires rendered JavaScript or interaction. Prefer simple HTTP acquisition first when it captures the relevant payload reliably.
 
 ### Architectural Grounding
 
@@ -136,6 +163,12 @@ The output is one of:
 
 The layer must continue processing after record-level failures whenever the overall run can still make progress.
 
+### Lean Starting Point
+
+Start with one parser strategy for one source and a small canonical model. Use a validation library instead of a custom validation framework.
+
+Parser output should be deterministic: the same raw artifact, parser version, and contract version should produce the same canonical or quarantine artifact.
+
 ## Layer 3: Analytical Enrichment
 
 ### Responsibility
@@ -170,6 +203,17 @@ Source: [Clean Coder - The Clean Architecture](https://blog.cleancoder.com/uncle
 The output is an Enriched Property Entity and related analytical artifacts.
 
 These outputs must retain lineage to the canonical listing records and raw artifacts from which they were derived.
+
+### Lean Starting Point
+
+Start with simple deterministic features:
+
+- Price per square meter
+- Currency context preservation
+- Basic duplicate candidate grouping
+- Manual-review opportunity flags
+
+Avoid machine learning, automated investment conclusions, and complex scoring until enough validated historical data exists.
 
 ## Layer Interaction Rules
 
