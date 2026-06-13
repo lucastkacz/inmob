@@ -1,0 +1,42 @@
+{
+  "artifact_id": "45638f80737c40f1a33e4c97783b81fa",
+  "artifact_type": "raw_artifact",
+  "captured_at": "2026-06-13T21:40:19.205537Z",
+  "final_uri": "https://www.remax.com.ar/listings/venta-dpto-3-ambientes-con-dependencia-belgrano",
+  "headers": {
+    "access-control-allow-headers": "Origin, X-Requested-With, Content-Type, Accept, Authorization",
+    "access-control-allow-methods": "GET, POST, PUT, DELETE, PATCH, OPTIONS",
+    "access-control-allow-origin": "*",
+    "connection": "keep-alive",
+    "content-encoding": "gzip",
+    "content-length": "49880",
+    "content-type": "text/html; charset=utf-8",
+    "date": "Sat, 13 Jun 2026 21:40:18 GMT",
+    "etag": "W/\"5c838-bWrAjDwngrVvLEiWoaKavznugZY\"",
+    "vary": "Accept-Encoding",
+    "via": "1.1 397ab63d724b0e63a7c5aa1654ae78d0.cloudfront.net (CloudFront)",
+    "x-amz-apigw-id": "e60qHE05oAMEtQw=",
+    "x-amz-cf-id": "cuBziQaBJnfpjO92ZsCo8aWnqSmUMxVB_Qgv7s4vbnftg6wfJlbB7A==",
+    "x-amz-cf-pop": "EZE50-P7",
+    "x-amzn-remapped-connection": "keep-alive",
+    "x-amzn-remapped-date": "Sat, 13 Jun 2026 21:40:18 GMT",
+    "x-amzn-requestid": "afc897d7-bb14-437c-9e6d-ba3f52096a47",
+    "x-amzn-trace-id": "Root=1-6a2dce40-74631acf00ae92053d5c51d0;Parent=1e677d3bbbb4780a;Sampled=0;Lineage=1:954ec700:0",
+    "x-cache": "Miss from cloudfront",
+    "x-powered-by": "Express"
+  },
+  "media_type": "text/html",
+  "metadata_path": "var/raw/remax/2026/06/13/manual-remax-listings-sample/45638f80737c40f1a33e4c97783b81fa.metadata.json",
+  "payload_path": "var/raw/remax/2026/06/13/manual-remax-listings-sample/45638f80737c40f1a33e4c97783b81fa.html",
+  "payload_sha256": "6aa5cee0f7f5096884e603e86aa16d52a31d361e5536870ea2bf1672a597c81e",
+  "payload_size_bytes": 378936,
+  "requested_uri": "https://www.remax.com.ar/listings/venta-dpto-3-ambientes-con-dependencia-belgrano",
+  "run_id": "manual-remax-listings-sample",
+  "source_id": "remax",
+  "status_code": 200,
+  "target_id": "remax-listing-venta-dpto-3-ambientes-con-dependencia-belgrano",
+  "target_kind": "listing_detail",
+  "target_metadata": {
+    "slug": "venta-dpto-3-ambientes-con-dependencia-belgrano"
+  }
+}

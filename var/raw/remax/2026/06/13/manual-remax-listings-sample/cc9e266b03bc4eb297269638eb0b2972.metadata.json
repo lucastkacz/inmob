@@ -1,0 +1,42 @@
+{
+  "artifact_id": "cc9e266b03bc4eb297269638eb0b2972",
+  "artifact_type": "raw_artifact",
+  "captured_at": "2026-06-13T21:40:10.892040Z",
+  "final_uri": "https://www.remax.com.ar/listings/venta-dpto-3-amb-c-dependencia-monte-castro",
+  "headers": {
+    "access-control-allow-headers": "Origin, X-Requested-With, Content-Type, Accept, Authorization",
+    "access-control-allow-methods": "GET, POST, PUT, DELETE, PATCH, OPTIONS",
+    "access-control-allow-origin": "*",
+    "connection": "keep-alive",
+    "content-encoding": "gzip",
+    "content-length": "48780",
+    "content-type": "text/html; charset=utf-8",
+    "date": "Sat, 13 Jun 2026 21:40:10 GMT",
+    "etag": "W/\"5c14a-epdjXIuIaFkqgXd8SwOGe034PRM\"",
+    "vary": "Accept-Encoding",
+    "via": "1.1 fa3d60d01c521da892a423d58d4f3b14.cloudfront.net (CloudFront)",
+    "x-amz-apigw-id": "e60o0GSuIAMEPWA=",
+    "x-amz-cf-id": "YUvL_hNQgxaL7-FMv4nK6XzGeaFmtZNweYu25hFgmDn9I5fk1JGNYw==",
+    "x-amz-cf-pop": "EZE50-P7",
+    "x-amzn-remapped-connection": "keep-alive",
+    "x-amzn-remapped-date": "Sat, 13 Jun 2026 21:40:10 GMT",
+    "x-amzn-requestid": "e166d5da-6378-40a5-b52d-e77e0eb105c1",
+    "x-amzn-trace-id": "Root=1-6a2dce38-5fdff0a409854d1d32db87c2;Parent=081c91432c934385;Sampled=0;Lineage=1:954ec700:0",
+    "x-cache": "Miss from cloudfront",
+    "x-powered-by": "Express"
+  },
+  "media_type": "text/html",
+  "metadata_path": "var/raw/remax/2026/06/13/manual-remax-listings-sample/cc9e266b03bc4eb297269638eb0b2972.metadata.json",
+  "payload_path": "var/raw/remax/2026/06/13/manual-remax-listings-sample/cc9e266b03bc4eb297269638eb0b2972.html",
+  "payload_sha256": "3730f4e6727ca941cab8122777f550a524bc6cde5b0061edee4272358b4f5899",
+  "payload_size_bytes": 377162,
+  "requested_uri": "https://www.remax.com.ar/listings/venta-dpto-3-amb-c-dependencia-monte-castro",
+  "run_id": "manual-remax-listings-sample",
+  "source_id": "remax",
+  "status_code": 200,
+  "target_id": "remax-listing-venta-dpto-3-amb-c-dependencia-monte-castro",
+  "target_kind": "listing_detail",
+  "target_metadata": {
+    "slug": "venta-dpto-3-amb-c-dependencia-monte-castro"
+  }
+}

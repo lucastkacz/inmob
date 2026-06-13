@@ -1,0 +1,42 @@
+{
+  "artifact_id": "0c0c630a8b884aa68054e0b579b71c66",
+  "artifact_type": "raw_artifact",
+  "captured_at": "2026-06-13T21:40:22.467883Z",
+  "final_uri": "https://www.remax.com.ar/listings/venta-monoambiente-pb-al-frente-villa-urquiza",
+  "headers": {
+    "access-control-allow-headers": "Origin, X-Requested-With, Content-Type, Accept, Authorization",
+    "access-control-allow-methods": "GET, POST, PUT, DELETE, PATCH, OPTIONS",
+    "access-control-allow-origin": "*",
+    "connection": "keep-alive",
+    "content-encoding": "gzip",
+    "content-length": "48973",
+    "content-type": "text/html; charset=utf-8",
+    "date": "Sat, 13 Jun 2026 21:40:22 GMT",
+    "etag": "W/\"5b9bf-mvRi5hGRbk7sLYjdLl7ffJQjnos\"",
+    "vary": "Accept-Encoding",
+    "via": "1.1 9e06ee207959df92d6fc6dec934b897e.cloudfront.net (CloudFront)",
+    "x-amz-apigw-id": "e60q0EIEoAMEUnA=",
+    "x-amz-cf-id": "bx2vlmiFz0DHYpvkVgmiMrD53SNvEPdVuB98EvDDr1pHUQrCicBmAg==",
+    "x-amz-cf-pop": "EZE50-P7",
+    "x-amzn-remapped-connection": "keep-alive",
+    "x-amzn-remapped-date": "Sat, 13 Jun 2026 21:40:21 GMT",
+    "x-amzn-requestid": "e70eaaf2-f0ff-4302-bee6-c1982bd96504",
+    "x-amzn-trace-id": "Root=1-6a2dce44-5805960714097b5b4b009e83;Parent=6da5f890651959fc;Sampled=0;Lineage=1:954ec700:0",
+    "x-cache": "Miss from cloudfront",
+    "x-powered-by": "Express"
+  },
+  "media_type": "text/html",
+  "metadata_path": "var/raw/remax/2026/06/13/manual-remax-listings-sample/0c0c630a8b884aa68054e0b579b71c66.metadata.json",
+  "payload_path": "var/raw/remax/2026/06/13/manual-remax-listings-sample/0c0c630a8b884aa68054e0b579b71c66.html",
+  "payload_sha256": "7ba6075b1ea677c2d7479c52e5b19955195c1507c6ab28720ac700393150e248",
+  "payload_size_bytes": 375231,
+  "requested_uri": "https://www.remax.com.ar/listings/venta-monoambiente-pb-al-frente-villa-urquiza",
+  "run_id": "manual-remax-listings-sample",
+  "source_id": "remax",
+  "status_code": 200,
+  "target_id": "remax-listing-venta-monoambiente-pb-al-frente-villa-urquiza",
+  "target_kind": "listing_detail",
+  "target_metadata": {
+    "slug": "venta-monoambiente-pb-al-frente-villa-urquiza"
+  }
+}
