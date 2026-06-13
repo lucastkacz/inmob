@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from inmob.ingestion.contracts import IngestionTarget, PolitenessProfile, SourceDefinition
+from inmob.ingestion.contracts import (
+    IngestionTarget,
+    PolitenessProfile,
+    SourceDefinition,
+    TargetKind,
+)
 from inmob.ingestion.sources.configured_http import ConfiguredHttpSourceAdapter
 
 
@@ -40,6 +45,16 @@ class ArgenpropSource(ConfiguredHttpSourceAdapter):
 
 
 class RemaxSource(ConfiguredHttpSourceAdapter):
+    DEFAULT_HEADERS = {
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "accept-language": "es-AR,es;q=0.9,en;q=0.8",
+        "user-agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/126.0.0.0 Safari/537.36"
+        ),
+    }
+
     def __init__(self, targets: Sequence[IngestionTarget] = ()) -> None:
         super().__init__(
             definition=SourceDefinition(
@@ -50,6 +65,18 @@ class RemaxSource(ConfiguredHttpSourceAdapter):
                 politeness=DEFAULT_POLITENESS,
             ),
             targets=targets,
+            default_headers=self.DEFAULT_HEADERS,
+        )
+
+    @classmethod
+    def listing_target(cls, *, slug: str, url: str) -> IngestionTarget:
+        """Build a Bronze target for a RE/MAX listing detail page."""
+
+        return IngestionTarget(
+            target_id=f"remax-listing-{slug}",
+            kind=TargetKind.LISTING_DETAIL,
+            uri=url,
+            metadata={"slug": slug},
         )
 
 
