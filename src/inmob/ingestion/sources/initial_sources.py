@@ -72,27 +72,55 @@ class MercadoLibreSource(ConfiguredHttpSourceAdapter):
 
 
 class PropertySource(ConfiguredHttpSourceAdapter):
-    def __init__(self, targets: Sequence[IngestionTarget] = ()) -> None:
+    """Configurable placeholder for the project-specific 'Property' source.
+
+    The project has not yet confirmed the exact Property portal URL. Keeping
+    this source configurable avoids silently treating it as Properati.
+    """
+
+    def __init__(
+        self,
+        *,
+        homepage_url: str,
+        allowed_domains: tuple[str, ...],
+        targets: Sequence[IngestionTarget] = (),
+    ) -> None:
         super().__init__(
             definition=SourceDefinition(
                 source_id="property",
-                display_name="Properati / Property",
-                homepage_url="https://www.properati.com.ar/",
-                allowed_domains=("properati.com.ar", "www.properati.com.ar"),
+                display_name="Property",
+                homepage_url=homepage_url,
+                allowed_domains=allowed_domains,
                 politeness=DEFAULT_POLITENESS,
-                notes="Named 'property' by project convention; homepage points to Properati.",
+                notes="Project-specific source; exact portal URL must be configured explicitly.",
             ),
             targets=targets,
         )
 
 
-def build_initial_source_adapters() -> tuple[ConfiguredHttpSourceAdapter, ...]:
-    """Return configured adapters for the first supported portals."""
+def build_initial_source_adapters(
+    *,
+    property_homepage_url: str | None = None,
+    property_allowed_domains: tuple[str, ...] = (),
+) -> tuple[ConfiguredHttpSourceAdapter, ...]:
+    """Return configured adapters for the first supported portals.
 
-    return (
+    Property is included only when its exact portal URL is provided.
+    """
+
+    adapters: list[ConfiguredHttpSourceAdapter] = [
         ZonaPropSource(),
         ArgenpropSource(),
         RemaxSource(),
         MercadoLibreSource(),
-        PropertySource(),
-    )
+    ]
+
+    if property_homepage_url is not None:
+        adapters.append(
+            PropertySource(
+                homepage_url=property_homepage_url,
+                allowed_domains=property_allowed_domains,
+            )
+        )
+
+    return tuple(adapters)

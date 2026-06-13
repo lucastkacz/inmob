@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
+from urllib.parse import urlparse
 
 import httpx
 
@@ -46,6 +47,7 @@ class ConfiguredHttpSourceAdapter(SourceAdapter):
     def plan_requests(self, context: IngestionRunContext) -> Iterable[IngestionRequest]:
         del context
         for target in self._targets:
+            self._ensure_allowed_uri(target.uri)
             yield IngestionRequest(
                 source_id=self.definition.source_id,
                 target=target,
@@ -54,6 +56,13 @@ class ConfiguredHttpSourceAdapter(SourceAdapter):
             )
 
     def fetch(self, request: IngestionRequest) -> IngestionResponse:
+        if request.source_id != self.definition.source_id:
+            raise ValueError(
+                f"request source_id {request.source_id!r} does not match "
+                f"adapter source_id {self.definition.source_id!r}"
+            )
+        self._ensure_allowed_uri(request.target.uri)
+
         with httpx.Client(timeout=self._timeout_seconds, follow_redirects=True) as client:
             response = client.request(
                 method=request.method.value,
@@ -67,6 +76,8 @@ class ConfiguredHttpSourceAdapter(SourceAdapter):
         if media_type is not None:
             media_type = media_type.split(";", maxsplit=1)[0].strip().lower()
 
+        self._ensure_allowed_uri(str(response.url))
+
         return IngestionResponse(
             request=request,
             status_code=response.status_code,
@@ -75,3 +86,16 @@ class ConfiguredHttpSourceAdapter(SourceAdapter):
             headers=dict(response.headers),
             payload=response.content,
         )
+
+    def _ensure_allowed_uri(self, uri: str) -> None:
+        hostname = urlparse(uri).hostname
+        if hostname is None:
+            raise ValueError(f"target URI must include a hostname: {uri}")
+
+        normalized = hostname.lower()
+        if normalized not in self.definition.allowed_domains:
+            allowed = ", ".join(self.definition.allowed_domains)
+            raise ValueError(
+                f"target hostname {normalized!r} is not allowed for "
+                f"{self.definition.source_id}; allowed domains: {allowed}"
+            )

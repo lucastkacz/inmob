@@ -11,8 +11,9 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator
 
 
 class HttpMethod(StrEnum):
@@ -61,9 +62,22 @@ class SourceDefinition(BaseModel):
     source_id: str = Field(min_length=1, pattern=r"^[a-z0-9][a-z0-9_-]*$")
     display_name: str = Field(min_length=1)
     homepage_url: str = Field(min_length=1)
-    allowed_domains: tuple[str, ...]
+    allowed_domains: tuple[str, ...] = Field(min_length=1)
     politeness: PolitenessProfile
     notes: str | None = None
+
+    @field_validator("homepage_url")
+    @classmethod
+    def homepage_url_must_be_http(cls, value: str) -> str:
+        return _validate_http_url(value)
+
+    @field_validator("allowed_domains")
+    @classmethod
+    def allowed_domains_must_be_normalized(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        normalized = tuple(domain.strip().lower() for domain in value)
+        if any(not domain for domain in normalized):
+            raise ValueError("allowed_domains cannot contain blank values")
+        return normalized
 
 
 class IngestionRunContext(BaseModel):
@@ -85,6 +99,11 @@ class IngestionTarget(BaseModel):
     kind: TargetKind
     uri: str = Field(min_length=1)
     metadata: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("uri")
+    @classmethod
+    def uri_must_be_http(cls, value: str) -> str:
+        return _validate_http_url(value)
 
 
 class IngestionRequest(BaseModel):
@@ -112,6 +131,11 @@ class IngestionResponse(BaseModel):
     media_type: str | None = None
     headers: dict[str, str] = Field(default_factory=dict)
     payload: bytes
+
+    @field_validator("final_uri")
+    @classmethod
+    def final_uri_must_be_http(cls, value: str) -> str:
+        return _validate_http_url(value)
 
 
 class RawArtifact(BaseModel):
@@ -144,3 +168,10 @@ class RawArtifact(BaseModel):
         """Return a JSON-serializable representation."""
 
         return self.model_dump(mode="json")
+
+
+def _validate_http_url(value: str) -> str:
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("value must be an absolute HTTP(S) URL")
+    return value
