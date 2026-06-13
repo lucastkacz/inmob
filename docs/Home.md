@@ -6,12 +6,14 @@ The current focus is architectural alignment before any technology stack, progra
 
 ## Navigation
 
+- [[Architecture Canvas]]
 - [[01 - Architecture Overview]]
 - [[02 - Pipeline Layers]]
 - [[03 - Data Contracts and Lineage]]
 - [[04 - Failure Replay and Operations]]
 - [[05 - Analytical Domain]]
 - [[06 - Decision Log]]
+- [[07 - Repository Structure]]
 
 ## Documentation Rules
 
