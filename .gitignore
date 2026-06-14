@@ -24,3 +24,6 @@ var/*
 !var/quarantine/.gitkeep
 !var/enriched/
 !var/enriched/.gitkeep
+
+data/
+
