@@ -92,7 +92,12 @@ class ZonapropSource(RealEstateWebSource):
         request_logger.info("Fetching target via Playwright uri={}", request.target.uri)
         try:
             response = self._traffic.request(
-                lambda: self._fetch_via_playwright(request)
+                lambda: self._fetch_via_playwright(request),
+                log_context={
+                    "source_id": self.definition.source_id,
+                    "target_id": request.target.target_id,
+                    "target_kind": request.target.kind.value,
+                },
             )
         except Exception:
             request_logger.exception("Playwright fetch failed uri={}", request.target.uri)

@@ -20,6 +20,7 @@ from inmob.ingestion.contracts import (
     SourceDefinition,
 )
 from inmob.ingestion.traffic import TrafficController
+from inmob.ingestion.traffic.controller import TrafficSnapshot
 
 
 class WebSearchCriteria(ABC):
@@ -141,7 +142,12 @@ class RealEstateWebSource(ABC):
                     params=request.query_params or None,
                     content=request.body,
                     timeout=self._timeout_seconds,
-                )
+                ),
+                log_context={
+                    "source_id": source_id,
+                    "target_id": request.target.target_id,
+                    "target_kind": request.target.kind.value,
+                },
             )
         except Exception:
             elapsed_seconds = perf_counter() - started_at
@@ -199,6 +205,16 @@ class RealEstateWebSource(ABC):
         for client in cls._clients.values():
             client.close()
         cls._clients.clear()
+
+    def traffic_snapshot(self) -> TrafficSnapshot:
+        """Return accumulated traffic metrics for this source."""
+
+        return self._traffic.snapshot()
+
+    def reset_traffic_stats(self) -> None:
+        """Reset accumulated traffic metrics for this source."""
+
+        self._traffic.reset_stats()
 
     @abstractmethod
     def listing_target_from_url(self, url: str) -> IngestionTarget:

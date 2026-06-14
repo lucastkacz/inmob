@@ -6,8 +6,9 @@ import random
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
-from typing import Protocol, TypeVar
+from typing import Mapping, Protocol, TypeVar
 
 import httpx
 from loguru import logger
@@ -28,6 +29,23 @@ class StatusResponse(Protocol):
 
 T = TypeVar("T", bound=StatusResponse)
 
+POLITENESS_INFO_THRESHOLD_SECONDS = 0.25
+
+
+@dataclass(frozen=True, slots=True)
+class TrafficSnapshot:
+    """Operational traffic metrics collected for one controller."""
+
+    logical_requests: int
+    request_attempts: int
+    responses_returned: int
+    retry_count: int
+    transport_error_count: int
+    retryable_status_count: int
+    politeness_wait_count: int
+    politeness_wait_total_seconds: float
+    retry_wait_count: int
+    retry_wait_total_seconds: float
 
 
 class TokenBucket:
@@ -105,18 +123,42 @@ class TrafficController:
             clock=clock,
             sleep=sleep,
         )
+        self._stats_lock = threading.Lock()
+        self._logical_requests = 0
+        self._request_attempts = 0
+        self._responses_returned = 0
+        self._retry_count = 0
+        self._transport_error_count = 0
+        self._retryable_status_count = 0
+        self._politeness_wait_count = 0
+        self._politeness_wait_total_seconds = 0.0
+        self._retry_wait_count = 0
+        self._retry_wait_total_seconds = 0.0
 
-    def request(self, send: Callable[[], T]) -> T:
+    def request(
+        self,
+        send: Callable[[], T],
+        *,
+        log_context: Mapping[str, str] | None = None,
+    ) -> T:
         """Run one polite HTTP request with retry/backoff behavior."""
 
         retry = self._profile.retry
         last_transport_error: httpx.TransportError | None = None
+        request_logger = logger.bind(**(dict(log_context) if log_context is not None else {}))
+        self._record_logical_request()
 
         for attempt in range(1, retry.max_attempts + 1):
             wait_seconds = self._bucket.wait_for_token()
+            self._record_attempt(wait_seconds=wait_seconds)
             if wait_seconds > 0:
-                logger.debug(
-                    "Politeness delay before request attempt={} delay_seconds={} "
+                log_method = (
+                    request_logger.info
+                    if wait_seconds >= POLITENESS_INFO_THRESHOLD_SECONDS
+                    else request_logger.debug
+                )
+                log_method(
+                    "Politeness delay before request attempt={} wait_seconds={} "
                     "requests_per_minute={} burst_size={}",
                     attempt,
                     round(wait_seconds, 3),
@@ -128,15 +170,17 @@ class TrafficController:
                 response = send()
             except httpx.TransportError as exc:
                 last_transport_error = exc
+                self._record_transport_error()
                 if attempt == retry.max_attempts:
-                    logger.exception(
+                    request_logger.exception(
                         "Transport error exhausted retry attempts attempt={} max_attempts={}",
                         attempt,
                         retry.max_attempts,
                     )
                     raise
                 delay_seconds = self._retry_delay_seconds(retry=retry, attempt=attempt)
-                logger.warning(
+                self._record_retry(delay_seconds=delay_seconds)
+                request_logger.warning(
                     "Transport error during request; retrying attempt={} max_attempts={} "
                     "delay_seconds={} error_type={}",
                     attempt,
@@ -148,16 +192,19 @@ class TrafficController:
                 continue
 
             if response.status_code not in RETRYABLE_STATUS_CODES:
+                self._record_response_returned()
                 return response
 
+            self._record_retryable_status()
             if attempt == retry.max_attempts:
-                logger.warning(
+                request_logger.warning(
                     "Retryable HTTP status exhausted retry attempts status_code={} attempt={} "
                     "max_attempts={}",
                     response.status_code,
                     attempt,
                     retry.max_attempts,
                 )
+                self._record_response_returned()
                 return response
 
             retry_after = response.headers.get("retry-after")
@@ -166,7 +213,8 @@ class TrafficController:
                 attempt=attempt,
                 retry_after=retry_after,
             )
-            logger.warning(
+            self._record_retry(delay_seconds=delay_seconds)
+            request_logger.warning(
                 "Retryable HTTP status received; retrying status_code={} attempt={} "
                 "max_attempts={} delay_seconds={} retry_after={}",
                 response.status_code,
@@ -180,6 +228,67 @@ class TrafficController:
         if last_transport_error is not None:
             raise last_transport_error
         raise RuntimeError("traffic controller exhausted attempts without a response")
+
+    def snapshot(self) -> TrafficSnapshot:
+        """Return a point-in-time traffic metrics snapshot."""
+
+        with self._stats_lock:
+            return TrafficSnapshot(
+                logical_requests=self._logical_requests,
+                request_attempts=self._request_attempts,
+                responses_returned=self._responses_returned,
+                retry_count=self._retry_count,
+                transport_error_count=self._transport_error_count,
+                retryable_status_count=self._retryable_status_count,
+                politeness_wait_count=self._politeness_wait_count,
+                politeness_wait_total_seconds=round(self._politeness_wait_total_seconds, 3),
+                retry_wait_count=self._retry_wait_count,
+                retry_wait_total_seconds=round(self._retry_wait_total_seconds, 3),
+            )
+
+    def reset_stats(self) -> None:
+        """Reset accumulated traffic metrics."""
+
+        with self._stats_lock:
+            self._logical_requests = 0
+            self._request_attempts = 0
+            self._responses_returned = 0
+            self._retry_count = 0
+            self._transport_error_count = 0
+            self._retryable_status_count = 0
+            self._politeness_wait_count = 0
+            self._politeness_wait_total_seconds = 0.0
+            self._retry_wait_count = 0
+            self._retry_wait_total_seconds = 0.0
+
+    def _record_logical_request(self) -> None:
+        with self._stats_lock:
+            self._logical_requests += 1
+
+    def _record_attempt(self, *, wait_seconds: float) -> None:
+        with self._stats_lock:
+            self._request_attempts += 1
+            if wait_seconds > 0:
+                self._politeness_wait_count += 1
+                self._politeness_wait_total_seconds += wait_seconds
+
+    def _record_response_returned(self) -> None:
+        with self._stats_lock:
+            self._responses_returned += 1
+
+    def _record_retry(self, *, delay_seconds: float) -> None:
+        with self._stats_lock:
+            self._retry_count += 1
+            self._retry_wait_count += 1
+            self._retry_wait_total_seconds += delay_seconds
+
+    def _record_retryable_status(self) -> None:
+        with self._stats_lock:
+            self._retryable_status_count += 1
+
+    def _record_transport_error(self) -> None:
+        with self._stats_lock:
+            self._transport_error_count += 1
 
     def _retry_delay_seconds(
         self,

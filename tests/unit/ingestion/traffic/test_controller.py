@@ -77,3 +77,40 @@ def test_traffic_controller_honors_retry_after_header() -> None:
 
     assert response.status_code == 200
     assert clock.sleeps == [7.0]
+
+
+def test_traffic_controller_snapshot_tracks_waits_and_retries() -> None:
+    clock = FakeClock()
+    profile = PolitenessProfile(
+        requests_per_minute=60,
+        burst_size=1,
+        retry=RetryProfile(max_attempts=2, initial_delay_seconds=2, max_delay_seconds=30),
+    )
+    controller = TrafficController(
+        profile=profile,
+        clock=clock.monotonic,
+        sleep=clock.sleep,
+        random_uniform=lambda lower, upper: upper,
+    )
+    retry_responses = [httpx.Response(429), httpx.Response(200)]
+
+    assert controller.request(lambda: httpx.Response(200)).status_code == 200
+    assert controller.request(lambda: retry_responses.pop(0)).status_code == 200
+
+    snapshot = controller.snapshot()
+
+    assert snapshot.logical_requests == 2
+    assert snapshot.request_attempts == 3
+    assert snapshot.responses_returned == 2
+    assert snapshot.retry_count == 1
+    assert snapshot.retryable_status_count == 1
+    assert snapshot.politeness_wait_count == 1
+    assert snapshot.politeness_wait_total_seconds == 1.0
+    assert snapshot.retry_wait_count == 1
+    assert snapshot.retry_wait_total_seconds == 2.0
+
+    controller.reset_stats()
+
+    reset_snapshot = controller.snapshot()
+    assert reset_snapshot.logical_requests == 0
+    assert reset_snapshot.request_attempts == 0

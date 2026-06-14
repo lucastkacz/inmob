@@ -1,6 +1,7 @@
-"""Configuration settings for the real estate scraper CLI."""
+"""Default CLI Bronze ingestion settings."""
 
 from typing import Any
+
 from inmob.ingestion.sources import (
     ArgenpropSearchCriteria,
     ArgenpropSource,
@@ -16,9 +17,10 @@ from inmob.ingestion.sources import (
     ZonapropSource,
 )
 
-DEFAULT_RAW_DATA_DIR = "data/raw"
 
-# Default configuration for each source.
+DEFAULT_RAW_DATA_DIR = "data/raw"
+DEFAULT_PROPERTY_LIMIT = 15
+
 # Targets "Capital Federal" / "CABA", buy/sale operation, sorted by newest first.
 DEFAULT_SOURCES_CONFIG: dict[str, dict[str, Any]] = {
     "argenprop": {

@@ -20,6 +20,7 @@ def configure_logging(
     *,
     log_dir: Path | str = Path("logs"),
     level: str = "INFO",
+    file_level: str = "INFO",
     rotation: str = "10 MB",
     retention: str = "14 days",
     diagnose: bool = False,
@@ -31,6 +32,7 @@ def configure_logging(
     """
 
     normalized_level = level.upper()
+    normalized_file_level = file_level.upper()
     log_root = Path(log_dir).expanduser().resolve(strict=False)
     log_root.mkdir(parents=True, exist_ok=True)
     log_path = log_root / "ingest_{time:YYYY-MM-DD_HH-mm-ss}.log"
@@ -54,7 +56,7 @@ def configure_logging(
     )
     logger.add(
         log_path,
-        level="DEBUG",
+        level=normalized_file_level,
         format=DEFAULT_LOG_FORMAT,
         rotation=rotation,
         retention=retention,
@@ -65,9 +67,10 @@ def configure_logging(
     )
 
     logger.debug(
-        "Logging configured log_dir={} level={} rotation={} retention={}",
+        "Logging configured log_dir={} level={} file_level={} rotation={} retention={}",
         str(log_root),
         normalized_level,
+        normalized_file_level,
         rotation,
         retention,
     )

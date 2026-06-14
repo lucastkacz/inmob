@@ -1,88 +1,164 @@
 # Inmob
 
-Defensive ETL/data platform for Argentine real estate listing intelligence.
+ETL/data platform for Argentine real estate listing ingestion.
 
----
+## Setup
 
-## 1. Configuración de Entorno desde Cero
+Requirements:
 
-Para correr este proyecto necesitás **Python 3.12+** y **Poetry** instalado en tu sistema.
+- Python `>=3.12,<4.0`
+- Poetry
 
-### Paso 1: Instalar dependencias y crear el entorno virtual
-Ejecutá el siguiente comando en la raíz del proyecto:
+Install dependencies from the repo root:
+
 ```bash
 poetry install
 ```
 
-### Paso 2: Activar el entorno virtual en tu terminal
-Siempre que vayas a trabajar en el proyecto o correr scripts/tests, tenés que entrar al contexto del entorno virtual:
+Install the Playwright browser used by browser-based sources:
+
 ```bash
-poetry shell
-```
-*(Alternativamente, podés ejecutar comandos anteponiendo `poetry run <comando>`)*.
-
----
-
-## 2. CLI de Ingestión (Ejecutar el Scraper)
-
-El CLI permite ejecutar la ingesta de avisos inmobiliarios a demanda. Los datos se persisten bajo la carpeta `data/raw/{fuente}/{propiedad_id}/` conteniendo exactamente `{fuente}_{propiedad_id}_raw_payload.html` (o `.json`) y `{fuente}_{propiedad_id}_raw_metadata.json`.
-
-### Requisito Obligatorio
-Debés indicar **o bien** el número de publicaciones (`--limit` / `-l`), **o bien** el número de páginas (`--pages` / `-p`). Si pasás ambos, la cantidad de publicaciones toma prioridad.
-
-### Comandos de Ejemplo
-
-* **Scrappear 50 publicaciones de todas las fuentes (CABA, más recientes):**
-  ```bash
-  poetry run inmob ingest --limit 50
-  ```
-
-* **Scrappear exactamente 2 páginas de listado de Properati:**
-  ```bash
-  poetry run inmob ingest --source properati --pages 2
-  ```
-
-* **Guardar resultados en una carpeta de destino personalizada:**
-  ```bash
-  poetry run inmob ingest --source mudafy --limit 10 --target-dir data/mi_carpeta
-  ```
-
-* **Ejecutar usando un archivo JSON de configuración con filtros de búsqueda personalizados:**
-  ```bash
-  poetry run inmob ingest --source zonaprop --limit 20 --config mis_filtros.json
-  ```
-
-### Opciones del CLI (`inmob ingest --help`)
-* `-s, --source TEXT`: Portales a scrappear (`argenprop`, `cabaprop`, `remax`, `mudafy`, `properati`, `zonaprop` o `all`). [default: `all`]
-* `-l, --limit INTEGER`: Límite máximo de propiedades por fuente.
-* `-p, --pages INTEGER`: Cantidad de páginas de búsqueda a recorrer por fuente.
-* `-d, --target-dir PATH`: Directorio raíz donde se guardarán los resultados. [default: `data/raw`]
-* `-c, --config PATH`: Archivo JSON para sobreescribir la configuración interna de criterios.
-
----
-
-## 3. Ejecución de Tests de Ingestión (Bronze)
-
-La suite de pruebas automatizadas verifica el funcionamiento del scraper sobre las 6 fuentes integradas (usando directorios de prueba autolimpiables que no ensucian el repositorio).
-
-Correlos usando pytest con import-mode:
-```bash
-poetry run pytest --import-mode=importlib
+poetry run playwright install chromium
 ```
 
----
+Optional sanity check:
 
-## 4. ¿Cómo sigue el ETL? De Bronze a Silver (Standardization)
+```bash
+PYTHONPATH=src poetry run pytest tests/unit -q
+```
 
-Los datos crudos descargados por el scraper o acumulados en `data/raw/` representan el punto de partida de la etapa **Silver** del ETL.
+## Bronze CLI
 
-### ¿Dónde se desarrolla la Capa Silver?
-Toda la lógica de estandarización, limpieza, tipado y parseo semántico se escribe dentro de la carpeta:
-📂 `src/inmob/standardization/`
+Run the default Bronze download:
 
-### Tu Misión en la Capa Silver:
-1. **Leer los archivos crudos** generados en `data/raw/{fuente}/`.
-2. **Parsear el HTML o JSON**:
-   - *Tip en RE/MAX:* En el HTML de RE/MAX, hay un tag `<script id="ng-state" type="application/json">` que contiene un JSON gigante con todos los datos estructurados por su servidor Angular (coordenadas, precio en USD/ARS, dormitorios, baños, expensas, etc.). Parseá ese JSON en lugar de hacer regexs complejas sobre el DOM HTML.
-3. **Estandarizar los datos**: Transformar esos datos crudos a los modelos estructurados de tu negocio (normalización de nulos, monedas, metros cuadrados).
-4. **Persistir en Silver**: Guardar los datos limpios en la capa Silver estructurada.
+```bash
+PYTHONPATH=src poetry run inmob ingest
+```
+
+Default behavior:
+
+- Source: `all`
+- Limit: `15` properties per source
+- Output data: `data/raw`
+- Output logs: `logs`
+- Sources: `argenprop`, `cabaprop`, `mudafy`, `properati`, `remax`, `zonaprop`
+
+Expected raw output shape:
+
+```text
+data/raw/{source}/{property_id}/{source}_{property_id}_raw_payload.html
+data/raw/{source}/{property_id}/{source}_{property_id}_raw_metadata.json
+```
+
+JSON API sources write `.json` payloads instead of `.html`.
+
+Expected log output:
+
+```text
+logs/ingest_YYYY-MM-DD_HH-mm-ss.log
+```
+
+The log includes command start/end, source summaries, fetch status, saved payload paths, traffic policy, politeness waits, retries, and per-source traffic summaries.
+
+## Common Commands
+
+Run all sources with the default 15 properties each:
+
+```bash
+PYTHONPATH=src poetry run inmob ingest
+```
+
+Run one source with the default 15 properties:
+
+```bash
+PYTHONPATH=src poetry run inmob ingest --source zonaprop
+```
+
+Run one source with a custom property limit:
+
+```bash
+PYTHONPATH=src poetry run inmob ingest --source properati --limit 30
+```
+
+Run all sources with a custom property limit:
+
+```bash
+PYTHONPATH=src poetry run inmob ingest --limit 50
+```
+
+Scan search pages instead of using a property limit:
+
+```bash
+PYTHONPATH=src poetry run inmob ingest --source cabaprop --pages 2
+```
+
+Write data and logs to custom directories:
+
+```bash
+PYTHONPATH=src poetry run inmob ingest --limit 15 --target-dir data/raw-smoke --log-dir logs/smoke
+```
+
+Keep console quiet and write verbose diagnostics to file:
+
+```bash
+PYTHONPATH=src poetry run inmob ingest --log-level INFO --log-file-level DEBUG
+```
+
+## CLI Options
+
+```text
+--source, -s       Source to scrape: argenprop, cabaprop, mudafy, properati, remax, zonaprop, all.
+--limit, -l        Max properties per source. Defaults to 15 when --pages is not provided.
+--pages, -p        Number of search result pages to scan. Used only when --limit is omitted.
+--target-dir, -d   Raw data output directory. Default: data/raw.
+--config, -c       JSON file with per-source criteria overrides.
+--log-dir          Log output directory. Default: logs.
+--log-level        Console log level. Default: INFO.
+--log-file-level   File log level. Default: INFO.
+--log-rotation     Loguru rotation policy. Default: 10 MB.
+--log-retention    Loguru retention policy. Default: 14 days.
+```
+
+If both `--limit` and `--pages` are provided, `--limit` wins.
+
+## Criteria Override File
+
+Pass a JSON file with source keys and criteria fields to override the defaults.
+
+Example:
+
+```json
+{
+  "properati": {
+    "location": "capital-federal",
+    "property_type": "departamento",
+    "sort": "published_on_desc"
+  }
+}
+```
+
+Run it:
+
+```bash
+PYTHONPATH=src poetry run inmob ingest --source properati --config criteria.json
+```
+
+## Code Layout
+
+```text
+src/inmob/cli/cli.py            Typer entrypoint.
+src/inmob/cli/bronze/config.py  Default Bronze source criteria.
+src/inmob/cli/bronze/runner.py  Bronze orchestration.
+src/inmob/cli/bronze/store.py   Raw artifact persistence.
+src/inmob/ingestion/sources/    Source-specific fetch and discovery logic.
+src/inmob/ingestion/traffic/    Politeness, pacing, and retry controller.
+src/inmob/logging/              Loguru setup.
+```
+
+## Checks
+
+```bash
+PYTHONPATH=src poetry run ruff check src tests
+PYTHONPATH=src poetry run mypy src/inmob
+PYTHONPATH=src poetry run pytest -q
+```
