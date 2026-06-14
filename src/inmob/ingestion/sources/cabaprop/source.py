@@ -14,6 +14,8 @@ from collections.abc import Sequence
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlparse
 
+from loguru import logger
+
 from inmob.ingestion.contracts import (
     HttpMethod,
     IngestionRequest,
@@ -219,6 +221,7 @@ class CabapropSource(RealEstateWebSource):
     def discover_listing_targets(self, payload: bytes | str) -> tuple[IngestionTarget, ...]:
         """Discover listing-detail targets from raw CabaProp search payloads."""
 
+        discovery_logger = logger.bind(source_id=self.definition.source_id)
         text = (
             payload.decode("utf-8", errors="replace")
             if isinstance(payload, bytes)
@@ -227,26 +230,46 @@ class CabapropSource(RealEstateWebSource):
         try:
             decoded = json.loads(text)
         except json.JSONDecodeError:
+            discovery_logger.warning(
+                "CabaProp discovery skipped because payload is not JSON payload_bytes={}",
+                len(text.encode("utf-8")),
+            )
             return ()
 
         result = decoded.get("result")
         if not isinstance(result, list):
+            discovery_logger.warning(
+                "CabaProp discovery skipped because result is not a list result_type={}",
+                type(result).__name__,
+            )
             return ()
 
         discovered: list[IngestionTarget] = []
         seen: set[str] = set()
+        skipped_items = 0
+        duplicate_items = 0
         for item in result:
             if not isinstance(item, dict):
+                skipped_items += 1
                 continue
             listing_id = item.get("_id")
             title = item.get("title")
             if not isinstance(listing_id, str) or not listing_id:
+                skipped_items += 1
                 continue
             if listing_id in seen:
+                duplicate_items += 1
                 continue
             seen.add(listing_id)
             discovered.append(self.listing_target(listing_id=listing_id, title=title))
 
+        discovery_logger.info(
+            "CabaProp API discovery completed result_items={} discovered={} skipped={} duplicates={}",
+            len(result),
+            len(discovered),
+            skipped_items,
+            duplicate_items,
+        )
         return tuple(discovered)
 
     # Alias for backward compatibility

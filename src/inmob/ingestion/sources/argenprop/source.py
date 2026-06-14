@@ -12,6 +12,8 @@ from collections.abc import Sequence
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlparse
 
+from loguru import logger
+
 from inmob.ingestion.contracts import (
     IngestionTarget,
     PolitenessProfile,
@@ -144,6 +146,7 @@ class ArgenpropSource(RealEstateWebSource):
     def discover_listing_targets(self, payload: bytes | str) -> tuple[IngestionTarget, ...]:
         """Discover listing-detail targets from raw Argenprop search HTML."""
 
+        discovery_logger = logger.bind(source_id=self.definition.source_id)
         html = (
             payload.decode("utf-8", errors="replace")
             if isinstance(payload, bytes)
@@ -155,18 +158,32 @@ class ArgenpropSource(RealEstateWebSource):
 
         discovered_urls: list[str] = []
         seen: set[str] = set()
-        script_candidates = (
-            _path_to_url(match.group("path"))
-            for match in _LISTING_PATH_PATTERN.finditer(html)
+        script_candidates = tuple(
+            _path_to_url(match.group("path")) for match in _LISTING_PATH_PATTERN.finditer(html)
         )
+        rejected_candidates = 0
+        duplicate_candidates = 0
 
         for candidate in [*parser.hrefs, *script_candidates]:
             normalized = _normalize_listing_url(candidate)
-            if normalized is None or normalized in seen:
+            if normalized is None:
+                rejected_candidates += 1
+                continue
+            if normalized in seen:
+                duplicate_candidates += 1
                 continue
             seen.add(normalized)
             discovered_urls.append(normalized)
 
+        discovery_logger.info(
+            "Argenprop HTML discovery completed href_candidates={} regex_candidates={} "
+            "discovered={} rejected={} duplicates={}",
+            len(parser.hrefs),
+            len(script_candidates),
+            len(discovered_urls),
+            rejected_candidates,
+            duplicate_candidates,
+        )
         return tuple(self.listing_target_from_url(url) for url in discovered_urls)
 
 

@@ -7,6 +7,8 @@ from datetime import UTC
 from hashlib import sha256
 from pathlib import Path
 
+from loguru import logger
+
 from inmob.ingestion.contracts import IngestionResponse, IngestionRunContext, RawArtifact
 
 
@@ -30,6 +32,12 @@ class PropertyFolderRawArtifactStore:
     ) -> RawArtifact:
         target = response.request.target
         source_id = response.request.source_id
+        store_logger = logger.bind(
+            source_id=source_id,
+            run_id=context.run_id,
+            target_id=target.target_id,
+            target_kind=target.kind.value,
+        )
 
         # Determine unique property id from target metadata
         prop_id = target.metadata.get("listing_id") or target.metadata.get("slug")
@@ -64,6 +72,14 @@ class PropertyFolderRawArtifactStore:
 
         # Compute hash
         payload_sha = sha256(response.payload).hexdigest()
+        store_logger.debug(
+            "Property raw payload written property_id={} payload_path={} payload_bytes={} "
+            "payload_sha256={}",
+            prop_id,
+            str(payload_path),
+            len(response.payload),
+            payload_sha,
+        )
 
         # Create artifact contract
         artifact = RawArtifact(
@@ -89,6 +105,12 @@ class PropertyFolderRawArtifactStore:
         metadata_path.write_text(
             json.dumps(artifact.to_json_ready_dict(), indent=2, sort_keys=True),
             encoding="utf-8",
+        )
+        store_logger.info(
+            "Property raw artifact persisted property_id={} payload_path={} metadata_path={}",
+            prop_id,
+            str(payload_path),
+            str(metadata_path),
         )
 
         return artifact

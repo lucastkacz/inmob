@@ -10,9 +10,12 @@ import json
 import re
 import shutil
 from collections.abc import Sequence
-from pathlib import Path
 from html.parser import HTMLParser
+from pathlib import Path
+from time import perf_counter
 from urllib.parse import urljoin, urlparse
+
+from loguru import logger
 
 from inmob.ingestion.contracts import (
     IngestionRequest,
@@ -106,9 +109,20 @@ class RemaxSource(RealEstateWebSource):
         return self.DEFAULT_HEADERS
 
     def fetch(self, request: IngestionRequest) -> IngestionResponse:
+        request_logger = logger.bind(
+            source_id=self.definition.source_id,
+            target_id=request.target.target_id,
+            target_kind=request.target.kind.value,
+        )
         response = super().fetch(request)
         if self._should_refresh_waf_session(response):
+            request_logger.warning(
+                "RE/MAX WAF challenge detected status_code={} uri={}",
+                response.status_code,
+                request.target.uri,
+            )
             self._refresh_waf_session(request.target.uri)
+            request_logger.info("Retrying RE/MAX fetch after WAF session refresh")
             response = super().fetch(request)
         return response
 
@@ -261,6 +275,10 @@ class RemaxSource(RealEstateWebSource):
         )
         api_targets = self._discover_api_listing_targets(text)
         if api_targets:
+            logger.bind(source_id=self.definition.source_id).info(
+                "RE/MAX discovery selected API detail targets count={}",
+                len(api_targets),
+            )
             return api_targets
 
         return self._discover_html_listing_targets(text)
@@ -277,6 +295,10 @@ class RemaxSource(RealEstateWebSource):
         )
         api_targets = self._discover_api_public_detail_targets(text)
         if api_targets:
+            logger.bind(source_id=self.definition.source_id).info(
+                "RE/MAX discovery selected public detail targets from API count={}",
+                len(api_targets),
+            )
             return api_targets
 
         return self._discover_html_listing_targets(text)
@@ -284,30 +306,49 @@ class RemaxSource(RealEstateWebSource):
     def _discover_api_listing_targets(self, payload_text: str) -> tuple[IngestionTarget, ...]:
         """Discover listing detail API targets from the RE/MAX search API payload."""
 
+        discovery_logger = logger.bind(source_id=self.definition.source_id)
         try:
             decoded = json.loads(payload_text)
         except json.JSONDecodeError:
+            discovery_logger.debug("RE/MAX API discovery skipped because payload is not JSON")
             return ()
 
         data = decoded.get("data")
         if not isinstance(data, dict):
+            discovery_logger.debug(
+                "RE/MAX API discovery skipped because data is not an object data_type={}",
+                type(data).__name__,
+            )
             return ()
 
         items = data.get("data")
         if not isinstance(items, list):
+            discovery_logger.debug(
+                "RE/MAX API discovery skipped because data.data is not a list items_type={}",
+                type(items).__name__,
+            )
             return ()
 
         discovered: list[IngestionTarget] = []
         seen: set[str] = set()
+        skipped_items = 0
+        duplicate_items = 0
+        entrepreneurship_items = 0
         for item in items:
             if not isinstance(item, dict):
+                skipped_items += 1
                 continue
             slug = item.get("slug")
             if not isinstance(slug, str) or not slug or slug in seen:
+                if isinstance(slug, str) and slug in seen:
+                    duplicate_items += 1
+                else:
+                    skipped_items += 1
                 continue
             seen.add(slug)
             entity_id = item.get("entityId")
             if item.get("entrepreneurship") is True:
+                entrepreneurship_items += 1
                 discovered.append(
                     self.api_entrepreneurship_target(
                         slug=slug,
@@ -317,6 +358,15 @@ class RemaxSource(RealEstateWebSource):
             else:
                 discovered.append(self.api_listing_target(slug=slug))
 
+        discovery_logger.info(
+            "RE/MAX API discovery completed items={} discovered={} entrepreneurships={} "
+            "skipped={} duplicates={}",
+            len(items),
+            len(discovered),
+            entrepreneurship_items,
+            skipped_items,
+            duplicate_items,
+        )
         return tuple(discovered)
 
     def _discover_api_public_detail_targets(
@@ -324,29 +374,52 @@ class RemaxSource(RealEstateWebSource):
     ) -> tuple[IngestionTarget, ...]:
         """Discover public HTML detail targets from the RE/MAX search API payload."""
 
+        discovery_logger = logger.bind(source_id=self.definition.source_id)
         try:
             decoded = json.loads(payload_text)
         except json.JSONDecodeError:
+            discovery_logger.debug(
+                "RE/MAX public detail discovery skipped because payload is not JSON"
+            )
             return ()
 
         data = decoded.get("data")
         if not isinstance(data, dict):
+            discovery_logger.debug(
+                "RE/MAX public detail discovery skipped because data is not an object "
+                "data_type={}",
+                type(data).__name__,
+            )
             return ()
 
         items = data.get("data")
         if not isinstance(items, list):
+            discovery_logger.debug(
+                "RE/MAX public detail discovery skipped because data.data is not a list "
+                "items_type={}",
+                type(items).__name__,
+            )
             return ()
 
         discovered: list[IngestionTarget] = []
         seen: set[str] = set()
+        skipped_items = 0
+        duplicate_items = 0
+        entrepreneurship_items = 0
         for item in items:
             if not isinstance(item, dict):
+                skipped_items += 1
                 continue
             slug = item.get("slug")
             if not isinstance(slug, str) or not slug or slug in seen:
+                if isinstance(slug, str) and slug in seen:
+                    duplicate_items += 1
+                else:
+                    skipped_items += 1
                 continue
             seen.add(slug)
             if item.get("entrepreneurship") is True:
+                entrepreneurship_items += 1
                 discovered.append(
                     self.entrepreneurship_target(
                         slug=slug,
@@ -361,31 +434,56 @@ class RemaxSource(RealEstateWebSource):
                     )
                 )
 
+        discovery_logger.info(
+            "RE/MAX API public detail discovery completed items={} discovered={} "
+            "entrepreneurships={} skipped={} duplicates={}",
+            len(items),
+            len(discovered),
+            entrepreneurship_items,
+            skipped_items,
+            duplicate_items,
+        )
         return tuple(discovered)
 
     def _discover_html_listing_targets(self, html: str) -> tuple[IngestionTarget, ...]:
+        discovery_logger = logger.bind(source_id=self.definition.source_id)
         parser = _RemaxListingLinkParser()
         parser.feed(html)
 
         discovered_urls: list[str] = []
         seen: set[str] = set()
 
-        script_candidates = (
-            _path_to_url(match.group("path"))
-            for match in _LISTING_PATH_PATTERN.finditer(html)
+        script_candidates = tuple(
+            _path_to_url(match.group("path")) for match in _LISTING_PATH_PATTERN.finditer(html)
         )
-        slug_candidates = (
+        slug_candidates = tuple(
             _path_to_url(f"/listings/{match.group('slug')}")
             for match in _LISTING_SLUG_PATTERN.finditer(html)
         )
+        rejected_candidates = 0
+        duplicate_candidates = 0
 
         for candidate in [*parser.hrefs, *script_candidates, *slug_candidates]:
             normalized = _normalize_listing_url(candidate)
-            if normalized is None or normalized in seen:
+            if normalized is None:
+                rejected_candidates += 1
+                continue
+            if normalized in seen:
+                duplicate_candidates += 1
                 continue
             seen.add(normalized)
             discovered_urls.append(normalized)
 
+        discovery_logger.info(
+            "RE/MAX HTML discovery completed href_candidates={} path_regex_candidates={} "
+            "slug_regex_candidates={} discovered={} rejected={} duplicates={}",
+            len(parser.hrefs),
+            len(script_candidates),
+            len(slug_candidates),
+            len(discovered_urls),
+            rejected_candidates,
+            duplicate_candidates,
+        )
         return tuple(self.listing_target_from_url(url) for url in discovered_urls)
 
     def _should_refresh_waf_session(self, response: IngestionResponse) -> bool:
@@ -397,9 +495,12 @@ class RemaxSource(RealEstateWebSource):
         return response.status_code == 202 and b"awsWaf" in response.payload
 
     def _refresh_waf_session(self, url: str) -> None:
+        waf_logger = logger.bind(source_id=self.definition.source_id)
+        started_at = perf_counter()
         try:
             from playwright.sync_api import sync_playwright
         except ImportError as exc:
+            waf_logger.exception("Cannot refresh RE/MAX WAF session because Playwright is missing")
             raise RuntimeError(
                 "RE/MAX returned an AWS WAF challenge; install playwright to refresh "
                 "the browser session before retrying HTML fetches."
@@ -407,11 +508,15 @@ class RemaxSource(RealEstateWebSource):
 
         chrome_path = _chrome_executable_path()
         if chrome_path is None:
+            waf_logger.error(
+                "Cannot refresh RE/MAX WAF session because Chrome/Chromium was not found"
+            )
             raise RuntimeError(
                 "RE/MAX returned an AWS WAF challenge, but no Chrome/Chromium "
                 "executable was found for the browser fallback."
             )
 
+        waf_logger.info("Refreshing RE/MAX WAF session url={} chrome_path={}", url, chrome_path)
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(
                 executable_path=chrome_path,
@@ -430,8 +535,15 @@ class RemaxSource(RealEstateWebSource):
 
         client = self._clients.get(self.definition.source_id)
         if client is None:
+            waf_logger.warning(
+                "RE/MAX WAF session refreshed but HTTP client was not available "
+                "cookies_received={} elapsed_seconds={}",
+                len(cookies),
+                round(perf_counter() - started_at, 3),
+            )
             return
 
+        cookies_set = 0
         for cookie in cookies:
             name = cookie.get("name")
             value = cookie.get("value")
@@ -448,6 +560,15 @@ class RemaxSource(RealEstateWebSource):
                 domain=cookie_domain.lstrip("."),
                 path=cookie_path,
             )
+            cookies_set += 1
+
+        waf_logger.info(
+            "RE/MAX WAF session refreshed cookies_received={} cookies_set={} "
+            "elapsed_seconds={}",
+            len(cookies),
+            cookies_set,
+            round(perf_counter() - started_at, 3),
+        )
 
 
 class _RemaxListingLinkParser(HTMLParser):

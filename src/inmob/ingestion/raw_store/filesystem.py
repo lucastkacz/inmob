@@ -8,6 +8,8 @@ from hashlib import sha256
 from pathlib import Path
 from uuid import uuid4
 
+from loguru import logger
+
 from inmob.ingestion.contracts import IngestionResponse, IngestionRunContext, RawArtifact
 
 
@@ -26,6 +28,12 @@ class FileSystemRawArtifactStore:
         artifact_id = uuid4().hex
         payload_sha = sha256(response.payload).hexdigest()
         captured_at = response.captured_at.astimezone(UTC)
+        store_logger = logger.bind(
+            source_id=response.request.source_id,
+            run_id=context.run_id,
+            target_id=response.request.target.target_id,
+            target_kind=response.request.target.kind.value,
+        )
 
         artifact_dir = self._artifact_dir(
             source_id=response.request.source_id,
@@ -39,6 +47,12 @@ class FileSystemRawArtifactStore:
         metadata_path = artifact_dir / f"{artifact_id}.metadata.json"
 
         payload_path.write_bytes(response.payload)
+        store_logger.debug(
+            "Raw payload written payload_path={} payload_bytes={} payload_sha256={}",
+            str(payload_path),
+            len(response.payload),
+            payload_sha,
+        )
 
         artifact = RawArtifact(
             artifact_id=artifact_id,
@@ -62,6 +76,12 @@ class FileSystemRawArtifactStore:
         metadata_path.write_text(
             json.dumps(artifact.to_json_ready_dict(), indent=2, sort_keys=True),
             encoding="utf-8",
+        )
+        store_logger.info(
+            "Raw artifact persisted artifact_id={} payload_path={} metadata_path={}",
+            artifact_id,
+            str(payload_path),
+            str(metadata_path),
         )
 
         return artifact

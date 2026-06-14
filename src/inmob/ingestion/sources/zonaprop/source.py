@@ -10,7 +10,10 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from html.parser import HTMLParser
+from time import perf_counter
 from urllib.parse import urljoin, urlparse
+
+from loguru import logger
 
 from inmob.ingestion.contracts import (
     IngestionRequest,
@@ -81,15 +84,32 @@ class ZonapropSource(RealEstateWebSource):
         """Fetch one raw payload using headless Playwright."""
         self._ensure_allowed_uri(request.target.uri)
 
-        response = self._traffic.request(
-            lambda: self._fetch_via_playwright(request)
+        request_logger = logger.bind(
+            source_id=self.definition.source_id,
+            target_id=request.target.target_id,
+            target_kind=request.target.kind.value,
         )
+        request_logger.info("Fetching target via Playwright uri={}", request.target.uri)
+        try:
+            response = self._traffic.request(
+                lambda: self._fetch_via_playwright(request)
+            )
+        except Exception:
+            request_logger.exception("Playwright fetch failed uri={}", request.target.uri)
+            raise
         return response
 
     def _fetch_via_playwright(self, request: IngestionRequest) -> IngestionResponse:
         from playwright.sync_api import sync_playwright
 
+        request_logger = logger.bind(
+            source_id=self.definition.source_id,
+            target_id=request.target.target_id,
+            target_kind=request.target.kind.value,
+        )
+        started_at = perf_counter()
         with sync_playwright() as playwright:
+            request_logger.debug("Launching Chromium for Zonaprop fetch")
             browser = playwright.chromium.launch(
                 headless=True,
                 args=("--disable-blink-features=AutomationControlled",),
@@ -103,6 +123,10 @@ class ZonapropSource(RealEstateWebSource):
             # Forward custom headers if present
             extra_headers = {k: v for k, v in request.headers.items() if k.lower() != "user-agent"}
             if extra_headers:
+                request_logger.debug(
+                    "Setting Playwright extra headers header_names={}",
+                    sorted(extra_headers),
+                )
                 page.set_extra_http_headers(extra_headers)
 
             res = page.goto(
@@ -124,8 +148,16 @@ class ZonapropSource(RealEstateWebSource):
         else:
             media_type = "text/html"
 
-        # Explicit type check conversion for compatibility
-        from inmob.ingestion.contracts import IngestionResponse
+        log_method = request_logger.warning if status_code >= 400 else request_logger.info
+        log_method(
+            "Playwright fetch completed status_code={} media_type={} payload_bytes={} "
+            "final_uri={} elapsed_seconds={}",
+            status_code,
+            media_type,
+            len(payload),
+            final_uri,
+            round(perf_counter() - started_at, 3),
+        )
         return IngestionResponse(
             request=request,
             status_code=status_code,
@@ -200,6 +232,7 @@ class ZonapropSource(RealEstateWebSource):
 
     def discover_listing_targets(self, payload: bytes | str) -> tuple[IngestionTarget, ...]:
         """Discover listing-detail targets from raw Zonaprop search HTML."""
+        discovery_logger = logger.bind(source_id=self.definition.source_id)
         html = (
             payload.decode("utf-8", errors="replace")
             if isinstance(payload, bytes)
@@ -217,18 +250,33 @@ class ZonapropSource(RealEstateWebSource):
         parser = _ZonapropListingLinkParser()
         parser.feed(html)
 
-        regex_candidates = (
+        regex_candidates = tuple(
             f"https://www.zonaprop.com.ar/propiedades/{m.group('kind') or 'clasificado'}/{m.group('slug')}-{m.group('id')}.html"
             for m in pattern.finditer(html)
         )
+        rejected_candidates = 0
+        duplicate_candidates = 0
 
         for candidate in [*parser.hrefs, *regex_candidates]:
             normalized = _normalize_listing_url(candidate)
-            if normalized is None or normalized in seen:
+            if normalized is None:
+                rejected_candidates += 1
+                continue
+            if normalized in seen:
+                duplicate_candidates += 1
                 continue
             seen.add(normalized)
             discovered_urls.append(normalized)
 
+        discovery_logger.info(
+            "Zonaprop HTML discovery completed href_candidates={} regex_candidates={} "
+            "discovered={} rejected={} duplicates={}",
+            len(parser.hrefs),
+            len(regex_candidates),
+            len(discovered_urls),
+            rejected_candidates,
+            duplicate_candidates,
+        )
         return tuple(self.listing_target_from_url(url) for url in discovered_urls)
 
 
