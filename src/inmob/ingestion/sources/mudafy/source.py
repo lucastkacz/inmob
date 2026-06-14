@@ -42,6 +42,23 @@ _LISTING_PATH_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+_CATEGORY_PLURAL_MAP = {
+    "departamento": "departamentos",
+    "casa": "casas",
+    "oficina": "oficinas",
+    "terreno": "terrenos",
+    "comercio": "comercios",
+    "local": "locales",
+    "lote": "lotes",
+    "cochera": "cocheras",
+    "ph": "ph",
+    "quinta": "quintas",
+    "galpon": "galpones",
+    "edificio": "edificios",
+    "campo": "campos",
+    "propiedades": "propiedades",
+}
+
 
 class MudafySource(RealEstateWebSource):
     """Mudafy raw acquisition source."""
@@ -87,23 +104,7 @@ class MudafySource(RealEstateWebSource):
     def listing_target(cls, *, listing_id: str, category: str, slug: str) -> IngestionTarget:
         """Build a Bronze target for a Mudafy listing detail page."""
 
-        category_map = {
-            "departamento": "departamentos",
-            "casa": "casas",
-            "oficina": "oficinas",
-            "terreno": "terrenos",
-            "comercio": "comercios",
-            "local": "locales",
-            "lote": "lotes",
-            "cochera": "cocheras",
-            "ph": "ph",
-            "quinta": "quintas",
-            "galpon": "galpones",
-            "edificio": "edificios",
-            "campo": "campos",
-            "propiedades": "propiedades",
-        }
-        std_category = category_map.get(category.lower(), category.lower())
+        std_category = _CATEGORY_PLURAL_MAP.get(category.lower(), category.lower())
 
         return IngestionTarget(
             target_id=f"mudafy-listing-{listing_id}",
@@ -232,22 +233,6 @@ def _normalize_listing_url(candidate: str) -> str | None:
     slug = match.group(1)
 
     # Standardize category name to plural for canonical URLs
-    category_map = {
-        "departamento": "departamentos",
-        "casa": "casas",
-        "oficina": "oficinas",
-        "terreno": "terrenos",
-        "comercio": "comercios",
-        "local": "locales",
-        "lote": "lotes",
-        "cochera": "cocheras",
-        "ph": "ph",
-        "quinta": "quintas",
-        "galpon": "galpones",
-        "edificio": "edificios",
-        "campo": "campos",
-        "propiedades": "propiedades",
-    }
-    std_category = category_map.get(category.lower(), category.lower())
+    std_category = _CATEGORY_PLURAL_MAP.get(category.lower(), category.lower())
 
     return f"https://mudafy.com.ar/{std_category}/{slug}-{listing_id}"
