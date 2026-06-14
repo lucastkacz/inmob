@@ -2,12 +2,15 @@
 
 from inmob.ingestion.sources.argenprop import ArgenpropSearchCriteria, ArgenpropSource
 from inmob.ingestion.sources.base import RealEstateWebSource, SourceAdapter, WebSearchCriteria
+from inmob.ingestion.sources.cabaprop import CabapropSearchCriteria, CabapropSource
 from inmob.ingestion.sources.remax import RemaxSearchCriteria, RemaxSource
 from inmob.ingestion.sources.registry import SourceRegistry
 
 __all__ = [
     "ArgenpropSearchCriteria",
     "ArgenpropSource",
+    "CabapropSearchCriteria",
+    "CabapropSource",
     "RealEstateWebSource",
     "RemaxSearchCriteria",
     "RemaxSource",

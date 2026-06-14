@@ -9,6 +9,8 @@ __pycache__/
 dist/
 build/
 TOMAS_ACA_TENES_LOS_RAW_DE_REMAX/
+TOMAS_ACA_TENES_LOS_RAW_DE_CABAPROP/
+TOMAS_ACA_TENES_LOS_RAW_DE_ARGENPROP/
 var/*
 !var/.gitkeep
 !var/raw/
