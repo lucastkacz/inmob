@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
+from typing import ClassVar
 from urllib.parse import urlparse
 
 import httpx
@@ -16,6 +17,7 @@ from inmob.ingestion.contracts import (
     IngestionTarget,
     SourceDefinition,
 )
+from inmob.ingestion.traffic import TrafficController
 
 
 class WebSearchCriteria(ABC):
@@ -46,14 +48,19 @@ class RealEstateWebSource(ABC):
     estate facts such as price, address, rooms, area, or currency.
     """
 
+    _traffic_controllers: ClassVar[dict[str, TrafficController]] = {}
+    _clients: ClassVar[dict[str, httpx.Client]] = {}
+
     def __init__(
         self,
         *,
         targets: Iterable[IngestionTarget] = (),
         timeout_seconds: float = 30.0,
+        traffic_controller: TrafficController | None = None,
     ) -> None:
         self._targets = tuple(targets)
         self._timeout_seconds = timeout_seconds
+        self._traffic_controller = traffic_controller
 
     @property
     @abstractmethod
@@ -65,6 +72,12 @@ class RealEstateWebSource(ABC):
         """Return source-specific HTTP headers."""
 
         return {}
+
+    def headers_for_target(self, target: IngestionTarget) -> dict[str, str]:
+        """Return HTTP headers for one target."""
+
+        del target
+        return self.default_headers
 
     def plan_requests(self, context: IngestionRunContext) -> Iterable[IngestionRequest]:
         """Plan raw acquisition requests for a run."""
@@ -81,7 +94,7 @@ class RealEstateWebSource(ABC):
             source_id=self.definition.source_id,
             target=target,
             method=HttpMethod.GET,
-            headers=self.default_headers,
+            headers=self.headers_for_target(target),
         )
 
     def fetch(self, request: IngestionRequest) -> IngestionResponse:
@@ -94,14 +107,24 @@ class RealEstateWebSource(ABC):
             )
         self._ensure_allowed_uri(request.target.uri)
 
-        with httpx.Client(timeout=self._timeout_seconds, follow_redirects=True) as client:
-            response = client.request(
+        source_id = self.definition.source_id
+        if source_id not in self._clients:
+            self._clients[source_id] = httpx.Client(
+                timeout=self._timeout_seconds,
+                follow_redirects=True,
+            )
+        client = self._clients[source_id]
+
+        response = self._traffic.request(
+            lambda: client.request(
                 method=request.method.value,
                 url=str(request.target.uri),
                 headers=request.headers,
-                params=request.query_params,
+                params=request.query_params or None,
                 content=request.body,
+                timeout=self._timeout_seconds,
             )
+        )
 
         media_type = response.headers.get("content-type")
         if media_type is not None:
@@ -118,6 +141,26 @@ class RealEstateWebSource(ABC):
             payload=response.content,
         )
 
+    def close(self) -> None:
+        """Close the underlying HTTP client session."""
+        source_id = self.definition.source_id
+        client = self._clients.pop(source_id, None)
+        if client is not None:
+            client.close()
+
+    def __enter__(self) -> RealEstateWebSource:
+        return self
+
+    def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
+        self.close()
+
+    @classmethod
+    def close_all_clients(cls) -> None:
+        """Close all globally cached HTTP clients."""
+        for client in cls._clients.values():
+            client.close()
+        cls._clients.clear()
+
     @abstractmethod
     def listing_target_from_url(self, url: str) -> IngestionTarget:
         """Build a listing-detail target from a source listing URL."""
@@ -125,6 +168,18 @@ class RealEstateWebSource(ABC):
     @abstractmethod
     def discover_listing_targets(self, payload: bytes | str) -> tuple[IngestionTarget, ...]:
         """Discover listing-detail targets from a raw search/list page payload."""
+
+    @property
+    def _traffic(self) -> TrafficController:
+        if self._traffic_controller is None:
+            source_id = self.definition.source_id
+            if source_id not in self._traffic_controllers:
+                self._traffic_controllers[source_id] = TrafficController(
+                    profile=self.definition.politeness
+                )
+            return self._traffic_controllers[source_id]
+
+        return self._traffic_controller
 
     def _ensure_allowed_uri(self, uri: str) -> None:
         hostname = urlparse(uri).hostname

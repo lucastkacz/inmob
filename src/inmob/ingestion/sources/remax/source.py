@@ -15,18 +15,29 @@ from urllib.parse import urljoin, urlparse
 from inmob.ingestion.contracts import (
     IngestionTarget,
     PolitenessProfile,
+    RetryProfile,
     SourceDefinition,
     TargetKind,
 )
 from inmob.ingestion.sources.base import RealEstateWebSource
 from inmob.ingestion.sources.remax.search import (
+    REMAX_API_SEARCH_URL,
     REMAX_BUY_PATH,
     REMAX_HOME_URL,
     RemaxSearchCriteria,
 )
+from inmob.ingestion.traffic import TrafficController
 
 
-DEFAULT_POLITENESS = PolitenessProfile(requests_per_minute=20, burst_size=3)
+DEFAULT_POLITENESS = PolitenessProfile(
+    requests_per_minute=12,
+    burst_size=2,
+    retry=RetryProfile(
+        max_attempts=4,
+        initial_delay_seconds=2.0,
+        max_delay_seconds=45.0,
+    ),
+)
 
 _LISTING_PATH_PATTERN = re.compile(
     r"(?:https?://(?:www\.)?remax\.com\.ar)?"
@@ -52,13 +63,18 @@ class RemaxSource(RealEstateWebSource):
         self,
         targets: Sequence[IngestionTarget] = (),
         timeout_seconds: float = 30.0,
+        traffic_controller: TrafficController | None = None,
     ) -> None:
-        super().__init__(targets=targets, timeout_seconds=timeout_seconds)
+        super().__init__(
+            targets=targets,
+            timeout_seconds=timeout_seconds,
+            traffic_controller=traffic_controller,
+        )
         self._definition = SourceDefinition(
             source_id="remax",
             display_name="RE/MAX Argentina",
             homepage_url=REMAX_HOME_URL,
-            allowed_domains=("remax.com.ar", "www.remax.com.ar"),
+            allowed_domains=("remax.com.ar", "www.remax.com.ar", "api-ar.redremax.com"),
             politeness=DEFAULT_POLITENESS,
         )
 
@@ -68,6 +84,14 @@ class RemaxSource(RealEstateWebSource):
 
     @property
     def default_headers(self) -> dict[str, str]:
+        return self.DEFAULT_HEADERS
+
+    def headers_for_target(self, target: IngestionTarget) -> dict[str, str]:
+        if target.kind == TargetKind.API_ENDPOINT:
+            return {
+                **self.DEFAULT_HEADERS,
+                "accept": "application/json, text/plain, */*",
+            }
         return self.DEFAULT_HEADERS
 
     @classmethod
@@ -108,6 +132,29 @@ class RemaxSource(RealEstateWebSource):
         )
 
     @classmethod
+    def api_search_target(
+        cls, *, criteria: RemaxSearchCriteria, page: int
+    ) -> IngestionTarget:
+        """Build a Bronze target for one RE/MAX API search-results page."""
+
+        operation_ids = ",".join(
+            str(operation_id) for operation_id in criteria.operation_ids
+        )
+        return IngestionTarget(
+            target_id=f"remax-api-search-{criteria.target_key()}-page-{page}",
+            kind=TargetKind.API_ENDPOINT,
+            uri=criteria.build_api_url(page=page),
+            metadata={
+                "operation_ids": operation_ids,
+                "page": str(page),
+                "page_size": str(criteria.page_size),
+                "landing_path": criteria.landing_path or "",
+                "criteria_label": criteria.label or "",
+                "api_url": REMAX_API_SEARCH_URL,
+            },
+        )
+
+    @classmethod
     def search_targets(
         cls,
         *,
@@ -117,6 +164,17 @@ class RemaxSource(RealEstateWebSource):
         """Build Bronze targets for multiple RE/MAX search-results pages."""
 
         return tuple(cls.search_target(criteria=criteria, page=page) for page in pages)
+
+    @classmethod
+    def api_search_targets(
+        cls,
+        *,
+        criteria: RemaxSearchCriteria,
+        pages: Sequence[int],
+    ) -> tuple[IngestionTarget, ...]:
+        """Build Bronze API targets for multiple RE/MAX search-results pages."""
+
+        return tuple(cls.api_search_target(criteria=criteria, page=page) for page in pages)
 
     def discover_listing_targets(self, payload: bytes | str) -> tuple[IngestionTarget, ...]:
         """Discover listing-detail targets from raw RE/MAX search HTML.

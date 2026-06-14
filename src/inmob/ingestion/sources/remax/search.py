@@ -10,6 +10,9 @@ from inmob.ingestion.sources.base import WebSearchCriteria
 
 REMAX_HOME_URL = "https://www.remax.com.ar/"
 REMAX_BUY_PATH = "/listings/buy"
+REMAX_API_SEARCH_URL = (
+    "https://api-ar.redremax.com/remaxweb-ar/api/listings/findAllWithEntrepreneurships"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +45,40 @@ class RemaxSearchCriteria(WebSearchCriteria):
     def build_url(self, *, page: int) -> str:
         """Build the deterministic RE/MAX search URL for one result page."""
 
+        return self._build_url(base_url=f"{urljoin(REMAX_HOME_URL, REMAX_BUY_PATH)}", page=page)
+
+    def build_api_url(self, *, page: int) -> str:
+        """Build the deterministic RE/MAX API search URL for one result page."""
+
+        if page < 0:
+            raise ValueError("page must be greater than or equal to zero")
+        if self.page_size <= 0:
+            raise ValueError("page_size must be greater than zero")
+
+        params: list[tuple[str, str]] = [
+            ("page", str(page)),
+            ("pageSize", str(self.page_size)),
+        ]
+        if self.sort:
+            params.append(("sort", self.sort))
+        if self.operation_ids:
+            operation_ids = ",".join(
+                str(operation_id) for operation_id in self.operation_ids
+            )
+            params.append(("in", f"operationId:{operation_ids}"))
+        params.extend(self.filters)
+        if self.landing_path:
+            params.append(("landingPath", self.landing_path))
+
+        query = "&".join(
+            f"{quote(key, safe=':')}={quote(value, safe=':' if key == 'in' else '')}"
+            for key, value in params
+        )
+        return f"{REMAX_API_SEARCH_URL}?{query}"
+
+    def _build_url(self, *, base_url: str, page: int) -> str:
+        """Build a RE/MAX search URL for one result page."""
+
         if page < 0:
             raise ValueError("page must be greater than or equal to zero")
         if self.page_size <= 0:
@@ -69,4 +106,4 @@ class RemaxSearchCriteria(WebSearchCriteria):
         query = "&".join(
             f"{quote(key, safe=':')}={quote(value, safe='')}" for key, value in params
         )
-        return f"{urljoin(REMAX_HOME_URL, REMAX_BUY_PATH)}?{query}"
+        return f"{base_url}?{query}"

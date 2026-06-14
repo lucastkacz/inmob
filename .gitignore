@@ -8,6 +8,7 @@ __pycache__/
 .ruff_cache/
 dist/
 build/
+TOMAS_ACA_TENES_LOS_RAW_DE_REMAX/
 var/*
 !var/.gitkeep
 !var/raw/

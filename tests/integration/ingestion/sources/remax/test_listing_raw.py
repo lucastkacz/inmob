@@ -18,13 +18,13 @@ def test_remax_first_filtered_listing_detail_is_landed_as_raw_html(tmp_path) -> 
         label="capital-federal-buy",
     )
     search_target = RemaxSource.search_target(criteria=criteria, page=0)
-    search_source = RemaxSource(targets=(search_target,))
     context = IngestionRunContext(run_id="integration-remax-first-filtered-listing")
     store = FileSystemRawArtifactStore(tmp_path)
 
-    search_request = next(iter(search_source.plan_requests(context)))
-    search_response = search_source.fetch(search_request)
-    listing_targets = search_source.discover_listing_targets(search_response.payload)
+    with RemaxSource(targets=(search_target,)) as search_source:
+        search_request = next(iter(search_source.plan_requests(context)))
+        search_response = search_source.fetch(search_request)
+        listing_targets = search_source.discover_listing_targets(search_response.payload)
 
     print(f"Search URL: {search_request.target.uri}")
     print(f"Search status: {search_response.status_code}")
@@ -38,9 +38,9 @@ def test_remax_first_filtered_listing_detail_is_landed_as_raw_html(tmp_path) -> 
     print(f"Selected listing URL: {listing_target.uri}")
     print(f"Selected listing slug: {listing_target.metadata['slug']}")
 
-    listing_source = RemaxSource(targets=(listing_target,))
-    listing_request = next(iter(listing_source.plan_requests(context)))
-    listing_response = listing_source.fetch(listing_request)
+    with RemaxSource(targets=(listing_target,)) as listing_source:
+        listing_request = next(iter(listing_source.plan_requests(context)))
+        listing_response = listing_source.fetch(listing_request)
     artifact = store.persist(context=context, response=listing_response)
     payload = artifact.payload_path.read_bytes()
 
