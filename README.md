@@ -25,7 +25,7 @@ poetry shell
 
 ## 2. CLI de Ingestión (Ejecutar el Scraper)
 
-El CLI permite ejecutar la ingesta de avisos inmobiliarios a demanda. Los datos se persisten bajo la carpeta `data/raw/{fuente}/{propiedad_id}/` conteniendo exactamente `raw_payload.html` (o `raw_payload.json`) y `raw_metadata.json`.
+El CLI permite ejecutar la ingesta de avisos inmobiliarios a demanda. Los datos se persisten bajo la carpeta `data/raw/{fuente}/{propiedad_id}/` conteniendo exactamente `{fuente}_{propiedad_id}_raw_payload.html` (o `.json`) y `{fuente}_{propiedad_id}_raw_metadata.json`.
 
 ### Requisito Obligatorio
 Debés indicar **o bien** el número de publicaciones (`--limit` / `-l`), **o bien** el número de páginas (`--pages` / `-p`). Si pasás ambos, la cantidad de publicaciones toma prioridad.

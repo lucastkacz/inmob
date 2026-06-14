@@ -15,8 +15,8 @@ class PropertyFolderRawArtifactStore:
 
     Structure:
     {root}/{source_id}/{property_id}/
-      ├── raw_payload.html (or raw_payload.json)
-      └── raw_metadata.json
+      ├── {source_id}_{property_id}_raw_payload.html (or .json)
+      └── {source_id}_{property_id}_raw_metadata.json
     """
 
     def __init__(self, root: Path | str) -> None:
@@ -56,8 +56,8 @@ class PropertyFolderRawArtifactStore:
         else:
             ext = "bin"
 
-        payload_path = property_dir / f"raw_payload.{ext}"
-        metadata_path = property_dir / "raw_metadata.json"
+        payload_path = property_dir / f"{source_id}_{prop_id}_raw_payload.{ext}"
+        metadata_path = property_dir / f"{source_id}_{prop_id}_raw_metadata.json"
 
         # Write payload
         payload_path.write_bytes(response.payload)
