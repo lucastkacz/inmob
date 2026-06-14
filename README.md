@@ -4,18 +4,12 @@ Defensive ETL/data platform for Argentine real estate listing intelligence.
 
 ---
 
-## ¡TOMAS, LEÉ ESTO ANTES DE TOCAR UNA SOLA LÍNEA DE CÓDIGO!
-
-Este repositorio contiene la arquitectura base para la adquisición defensiva de datos inmobiliarios en Argentina. La estructura sigue el patrón clásico de capas de un Data Lake (Bronze -> Silver -> Gold). Actualmente, la capa **Bronze** (Ingestión de crudos) está funcional para RE/MAX.
-
----
-
 ## 1. Configuración de Entorno desde Cero
 
-Para correr este proyecto necesitás **Python 3.12+** y **Poetry** instalado en tu sistema. No uses `pip` global ni crees entornos virtuales a mano; dejamos que Poetry maneje todo.
+Para correr este proyecto necesitás **Python 3.12+** y **Poetry** instalado en tu sistema.
 
 ### Paso 1: Instalar dependencias y crear el entorno virtual
-Ejecutá el siguiente comando en la raíz del proyecto. Esto leerá el archivo `pyproject.toml`, resolverá las dependencias y creará un entorno virtual localizado en `.venv/`:
+Ejecutá el siguiente comando en la raíz del proyecto:
 ```bash
 poetry install
 ```
@@ -29,39 +23,66 @@ poetry shell
 
 ---
 
-## 2. Ejecución de Tests de Ingestión (Bronze)
+## 2. CLI de Ingestión (Ejecutar el Scraper)
 
-La capa Bronze se encarga de ir a buscar datos a los portales, lidiar con límites de tráfico y guardar la evidencia cruda en disco **sin parsear semánticamente ningún dato**.
+El CLI permite ejecutar la ingesta de avisos inmobiliarios a demanda. Los datos se persisten bajo la carpeta `data/raw/{fuente}/{propiedad_id}/` conteniendo exactamente `raw_payload.html` (o `raw_payload.json`) y `raw_metadata.json`.
 
-Para RE/MAX, tenemos tests de integración que simulan el scraping. Correlos con `pytest` indicando que muestre la salida estándar (`-s`):
+### Requisito Obligatorio
+Debés indicar **o bien** el número de publicaciones (`--limit` / `-l`), **o bien** el número de páginas (`--pages` / `-p`). Si pasás ambos, la cantidad de publicaciones toma prioridad.
 
-### Ejecutar el test bulk de exportación cruda:
-```bash
-poetry run pytest -s tests/integration/ingestion/sources/remax/test_bulk_raw_export.py
-```
-**¿Qué hace este test exactamente?**
-1. Consulta la API de búsqueda de RE/MAX para la primera página (24 publicaciones).
-2. Descubre los 24 links únicos de publicaciones.
-3. Descarga de forma educada (con rate limit y reusando la sesión para evitar bloqueos temporales de Cloudflare) el HTML completo de cada publicación.
-4. Persiste los resultados en el directorio local:
-   📂 `TOMAS_ACA_TENES_LOS_RAW_DE_REMAX/`
-   Ahí vas a encontrar por cada propiedad:
-   - Un archivo `.html` con el código fuente pre-renderizado del servidor.
-   - Un archivo `.metadata.json` con metadatos de la descarga (URL final, timestamp, status code, headers).
+### Comandos de Ejemplo
+
+* **Scrappear 50 publicaciones de todas las fuentes (CABA, más recientes):**
+  ```bash
+  poetry run inmob ingest --limit 50
+  ```
+
+* **Scrappear exactamente 2 páginas de listado de Properati:**
+  ```bash
+  poetry run inmob ingest --source properati --pages 2
+  ```
+
+* **Guardar resultados en una carpeta de destino personalizada:**
+  ```bash
+  poetry run inmob ingest --source mudafy --limit 10 --target-dir data/mi_carpeta
+  ```
+
+* **Ejecutar usando un archivo JSON de configuración con filtros de búsqueda personalizados:**
+  ```bash
+  poetry run inmob ingest --source zonaprop --limit 20 --config mis_filtros.json
+  ```
+
+### Opciones del CLI (`inmob ingest --help`)
+* `-s, --source TEXT`: Portales a scrappear (`argenprop`, `cabaprop`, `remax`, `mudafy`, `properati`, `zonaprop` o `all`). [default: `all`]
+* `-l, --limit INTEGER`: Límite máximo de propiedades por fuente.
+* `-p, --pages INTEGER`: Cantidad de páginas de búsqueda a recorrer por fuente.
+* `-d, --target-dir PATH`: Directorio raíz donde se guardarán los resultados. [default: `data/raw`]
+* `-c, --config PATH`: Archivo JSON para sobreescribir la configuración interna de criterios.
 
 ---
 
-## 3. ¿Cómo sigue el ETL? De Bronze a Silver (Standardization)
+## 3. Ejecución de Tests de Ingestión (Bronze)
 
-La carpeta temporal `TOMAS_ACA_TENES_LOS_RAW_DE_REMAX/` contiene la **evidencia Bronze**. Con esto arranca la etapa **Silver** del ETL.
+La suite de pruebas automatizadas verifica el funcionamiento del scraper sobre las 6 fuentes integradas (usando directorios de prueba autolimpiables que no ensucian el repositorio).
 
-### ¿Dónde se desarrolla Silver?
+Correlos usando pytest con import-mode:
+```bash
+poetry run pytest --import-mode=importlib
+```
+
+---
+
+## 4. ¿Cómo sigue el ETL? De Bronze a Silver (Standardization)
+
+Los datos crudos descargados por el scraper o acumulados en `data/raw/` representan el punto de partida de la etapa **Silver** del ETL.
+
+### ¿Dónde se desarrolla la Capa Silver?
 Toda la lógica de estandarización, limpieza, tipado y parseo semántico se escribe dentro de la carpeta:
 📂 `src/inmob/standardization/`
 
 ### Tu Misión en la Capa Silver:
-1. **Leer los archivos crudos** generados en `TOMAS_ACA_TENES_LOS_RAW_DE_REMAX/`.
-2. **Parsear el HTML**:
-   - *Tip Pro:* En el HTML pre-renderizado que bajamos de RE/MAX, hay un tag `<script id="ng-state" type="application/json">` que contiene un JSON gigante con todos los datos estructurados ya serializados por su servidor de Angular (coordenadas, precio en USD/ARS, dormitorios, baños, expensas, etc.). ¡No te vuelvas loco haciendo expresiones regulares complejas sobre el DOM! Parseá ese JSON.
-3. **Estandarizar los datos**: Transformar esos datos crudos a los modelos estructurados de tu negocio (tipos de datos limpios, normalización de strings, manejo de nulos).
-4. **Persistir en Silver**: Guardar los datos limpios en el almacén de datos estructurados correspondiente.
+1. **Leer los archivos crudos** generados en `data/raw/{fuente}/`.
+2. **Parsear el HTML o JSON**:
+   - *Tip en RE/MAX:* En el HTML de RE/MAX, hay un tag `<script id="ng-state" type="application/json">` que contiene un JSON gigante con todos los datos estructurados por su servidor Angular (coordenadas, precio en USD/ARS, dormitorios, baños, expensas, etc.). Parseá ese JSON en lugar de hacer regexs complejas sobre el DOM HTML.
+3. **Estandarizar los datos**: Transformar esos datos crudos a los modelos estructurados de tu negocio (normalización de nulos, monedas, metros cuadrados).
+4. **Persistir en Silver**: Guardar los datos limpios en la capa Silver estructurada.
