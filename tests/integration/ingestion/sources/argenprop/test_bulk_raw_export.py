@@ -1,6 +1,5 @@
 from collections import OrderedDict
 from pathlib import Path
-from shutil import rmtree
 
 from inmob.ingestion.contracts import (
     IngestionRunContext,
@@ -27,7 +26,7 @@ BULK_POLITENESS = PolitenessProfile(
 )
 
 
-def test_argenprop_bulk_capital_federal_newest_first_page_raw_export() -> None:
+def test_argenprop_bulk_capital_federal_newest_first_page_raw_export(tmp_path) -> None:
     criteria = ArgenpropSearchCriteria(
         property_type="departamentos",
         operation="venta",
@@ -38,15 +37,12 @@ def test_argenprop_bulk_capital_federal_newest_first_page_raw_export() -> None:
     )
     search_targets = ArgenpropSource.search_targets(criteria=criteria, pages=PAGES)
     context = IngestionRunContext(run_id="TOMAS_ACA_TENES_LOS_RAW_DE_ARGENPROP")
-    store = FileSystemRawArtifactStore(EXPORT_ROOT)
+    store = FileSystemRawArtifactStore(tmp_path)
     traffic = TrafficController(profile=BULK_POLITENESS)
     discovered_by_uri: OrderedDict[str, IngestionTarget] = OrderedDict()
     discovered_listing_count = 0
 
-    if EXPORT_ROOT.exists():
-        rmtree(EXPORT_ROOT)
-
-    print(f"Export root: {EXPORT_ROOT.resolve()}")
+    print(f"Export root: {tmp_path.resolve()}")
     print(f"Search pages: {PAGES}")
     print(f"Expected theoretical listings: {len(PAGES) * PAGE_SIZE}")
     print(
@@ -133,7 +129,7 @@ def test_argenprop_bulk_capital_federal_newest_first_page_raw_export() -> None:
 
     print(f"Exported raw listing files: {len(artifacts)}")
     print(f"Exported metadata files: {len(artifacts)}")
-    print(f"Open this folder: {EXPORT_ROOT.resolve()}")
+    print(f"Open this folder: {tmp_path.resolve()}")
 
     assert len(artifacts) == len(listing_targets)
     assert successful_listing_html_count == len(listing_targets)

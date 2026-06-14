@@ -26,16 +26,17 @@ app = typer.Typer(
 def scrape_source(
     source_id: str,
     source_cfg: dict[str, Any],
-    limit: int,
+    limit: int | None,
+    pages: int | None,
     target_dir: Path,
-    pages_limit: int,
     custom_criteria_args: dict[str, Any] | None = None,
 ) -> int:
     """Worker function to scrape a single source.
 
     Returns the number of successfully ingested listing detail files.
     """
-    print(f"[{source_id.upper()}] Starting scraper task (target limit: {limit})...")
+    target_desc = f"limit: {limit}" if limit is not None else f"pages: {pages}"
+    print(f"[{source_id.upper()}] Starting scraper task ({target_desc})...")
 
     source_class = source_cfg["source_class"]
     criteria_class = source_cfg["criteria_class"]
@@ -51,12 +52,15 @@ def scrape_source(
 
     # Calculate search pages needed
     page_size = criteria.page_size
-    pages_needed = math.ceil(limit / page_size)
-    pages_needed = min(pages_needed, pages_limit)
+    if limit is not None:
+        pages_needed = math.ceil(limit / page_size)
+        pages_needed = max(1, pages_needed)
+    else:
+        pages_needed = pages if pages is not None else 1
 
-    pages = list(range(page_index_starts_at, page_index_starts_at + pages_needed))
+    pages_range = list(range(page_index_starts_at, page_index_starts_at + pages_needed))
 
-    print(f"[{source_id.upper()}] Target page range: {pages} (size per page: {page_size})")
+    print(f"[{source_id.upper()}] Target page range: {pages_range} (size per page: {page_size})")
 
     # Ingestion run context
     run_id = f"cli-run-{source_id}-{uuid4().hex[:8]}"
@@ -64,7 +68,7 @@ def scrape_source(
 
     # Retrieve targets
     target_builder = getattr(source_class, search_targets_method)
-    search_targets = target_builder(criteria=criteria, pages=pages)
+    search_targets = target_builder(criteria=criteria, pages=pages_range)
 
     discovered_by_uri: dict[str, IngestionTarget] = {}
 
@@ -91,8 +95,12 @@ def scrape_source(
                     f"{request.target.uri}: {e}"
                 )
 
-    # 2. Slice listing targets to the exact user limit
-    listing_targets = tuple(discovered_by_uri.values())[:limit]
+    # 2. Slice listing targets (if limit is specified)
+    if limit is not None:
+        listing_targets = tuple(discovered_by_uri.values())[:limit]
+    else:
+        listing_targets = tuple(discovered_by_uri.values())
+
     total_discovered = len(discovered_by_uri)
     print(
         f"[{source_id.upper()}] Unique listings discovered: {total_discovered}. "
@@ -153,11 +161,17 @@ def ingest(
         "-s",
         help="Specific source to scrape (argenprop, cabaprop, remax, mudafy, properati, zonaprop) or 'all'.",
     ),
-    limit: int = typer.Option(
-        100,
+    limit: Optional[int] = typer.Option(
+        None,
         "--limit",
         "-l",
         help="Maximum properties to scrape per source.",
+    ),
+    pages: Optional[int] = typer.Option(
+        None,
+        "--pages",
+        "-p",
+        help="Number of search result pages to scan.",
     ),
     target_dir: Path = typer.Option(
         Path(DEFAULT_RAW_DATA_DIR),
@@ -171,15 +185,28 @@ def ingest(
         "-c",
         help="Optional path to a JSON file overriding default search criteria arguments.",
     ),
-    pages_limit: int = typer.Option(
-        10,
-        "--pages-limit",
-        "-p",
-        help="Maximum search result pages to scan.",
-    ),
 ) -> None:
     """Execute raw property ingestion from multiple real estate search portals."""
-    # 1. Parse JSON configs if provided
+    # 1. Validate inputs: at least one of limit or pages must be specified
+    if limit is None and pages is None:
+        typer.echo("Error: You must specify either --limit / -l or --pages / -p.", err=True)
+        raise typer.Exit(code=1)
+
+    # 2. Prioritize limit if both are provided (prelacion al limit)
+    if limit is not None and pages is not None:
+        typer.echo("Warning: Both --limit and --pages provided. Prioritizing --limit.", err=True)
+        pages = None
+
+    # Validate numbers
+    if limit is not None and limit <= 0:
+        typer.echo("Error: --limit must be greater than zero.", err=True)
+        raise typer.Exit(code=1)
+
+    if pages is not None and pages <= 0:
+        typer.echo("Error: --pages must be greater than zero.", err=True)
+        raise typer.Exit(code=1)
+
+    # 3. Parse JSON configs if provided
     overrides: dict[str, Any] = {}
     if config_path:
         if not config_path.exists():
@@ -193,7 +220,7 @@ def ingest(
             typer.echo(f"Error reading config file {config_path}: {e}", err=True)
             raise typer.Exit(code=1)
 
-    # 2. Filter target sources
+    # 4. Filter target sources
     sources_to_scrape: dict[str, dict[str, Any]] = {}
     if source.lower() == "all":
         sources_to_scrape = DEFAULT_SOURCES_CONFIG
@@ -212,9 +239,12 @@ def ingest(
     target_dir.mkdir(parents=True, exist_ok=True)
 
     typer.echo(f"Starting ingestion on target directory: {target_dir.resolve()}")
-    typer.echo(f"Limits: up to {limit} properties per source (max {pages_limit} index pages)")
+    if limit is not None:
+        typer.echo(f"Limits: up to {limit} properties per source")
+    else:
+        typer.echo(f"Limits: up to {pages} index pages per source")
 
-    # 3. Parallel Execution using ThreadPoolExecutor
+    # 5. Parallel Execution using ThreadPoolExecutor
     results: dict[str, int] = {}
     with ThreadPoolExecutor(max_workers=len(sources_to_scrape)) as executor:
         future_to_source = {
@@ -223,8 +253,8 @@ def ingest(
                 source_id=source_id,
                 source_cfg=cfg,
                 limit=limit,
+                pages=pages,
                 target_dir=target_dir,
-                pages_limit=pages_limit,
                 custom_criteria_args=overrides.get(source_id),
             ): source_id
             for source_id, cfg in sources_to_scrape.items()
@@ -239,7 +269,7 @@ def ingest(
                 typer.echo(f"[{source_id.upper()}] Worker crashed with exception: {exc}", err=True)
                 results[source_id] = 0
 
-    # 4. Summary display
+    # 6. Summary display
     typer.echo("\n" + "=" * 40)
     typer.echo("          INGESTION JOB SUMMARY")
     typer.echo("=" * 40)
