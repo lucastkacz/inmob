@@ -1,0 +1,253 @@
+"""Mudafy Bronze source adapter.
+
+This module owns Mudafy-specific acquisition rules: URL construction,
+source identity, and technical listing discovery. It deliberately avoids
+extracting real estate facts such as price, area, rooms, or address.
+"""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Sequence
+from html.parser import HTMLParser
+from urllib.parse import urljoin, urlparse
+
+from inmob.ingestion.contracts import (
+    IngestionRequest,
+    IngestionTarget,
+    PolitenessProfile,
+    RetryProfile,
+    SourceDefinition,
+    TargetKind,
+)
+from inmob.ingestion.sources.base import RealEstateWebSource
+from inmob.ingestion.sources.mudafy.search import MUDAFY_HOME_URL, MudafySearchCriteria
+from inmob.ingestion.traffic import TrafficController
+
+
+DEFAULT_POLITENESS = PolitenessProfile(
+    requests_per_minute=20,
+    burst_size=2,
+    retry=RetryProfile(
+        max_attempts=3,
+        initial_delay_seconds=1.0,
+        max_delay_seconds=20.0,
+    ),
+)
+
+_LISTING_PATH_PATTERN = re.compile(
+    r"(?:https?://(?:www\.)?mudafy\.com\.ar)?"
+    r"(?P<path>/(?P<category>propiedades|departamento|departamentos|casa|casas|ph|oficina|oficinas|terreno|terrenos|comercio|comercios|local|locales|lote|lotes|quinta|quintas|galpon|galpones|cochera|cocheras|edificio|edificios|campo|campos)/"
+    r"(?P<slug>[a-z0-9-]+)-(?P<id>\d+))",
+    re.IGNORECASE,
+)
+
+
+class MudafySource(RealEstateWebSource):
+    """Mudafy raw acquisition source."""
+
+    DEFAULT_HEADERS = {
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "accept-language": "es-AR,es;q=0.9,en;q=0.8",
+        "user-agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/126.0.0.0 Safari/537.36"
+        ),
+    }
+
+    def __init__(
+        self,
+        targets: Sequence[IngestionTarget] = (),
+        timeout_seconds: float = 30.0,
+        traffic_controller: TrafficController | None = None,
+    ) -> None:
+        super().__init__(
+            targets=targets,
+            timeout_seconds=timeout_seconds,
+            traffic_controller=traffic_controller,
+        )
+        self._definition = SourceDefinition(
+            source_id="mudafy",
+            display_name="Mudafy",
+            homepage_url=MUDAFY_HOME_URL,
+            allowed_domains=("mudafy.com.ar", "www.mudafy.com.ar"),
+            politeness=DEFAULT_POLITENESS,
+        )
+
+    @property
+    def definition(self) -> SourceDefinition:
+        return self._definition
+
+    @property
+    def default_headers(self) -> dict[str, str]:
+        return self.DEFAULT_HEADERS
+
+    @classmethod
+    def listing_target(cls, *, listing_id: str, category: str, slug: str) -> IngestionTarget:
+        """Build a Bronze target for a Mudafy listing detail page."""
+
+        category_map = {
+            "departamento": "departamentos",
+            "casa": "casas",
+            "oficina": "oficinas",
+            "terreno": "terrenos",
+            "comercio": "comercios",
+            "local": "locales",
+            "lote": "lotes",
+            "cochera": "cocheras",
+            "ph": "ph",
+            "quinta": "quintas",
+            "galpon": "galpones",
+            "edificio": "edificios",
+            "campo": "campos",
+            "propiedades": "propiedades",
+        }
+        std_category = category_map.get(category.lower(), category.lower())
+
+        return IngestionTarget(
+            target_id=f"mudafy-listing-{listing_id}",
+            kind=TargetKind.LISTING_DETAIL,
+            uri=f"https://mudafy.com.ar/{std_category}/{slug}-{listing_id}",
+            metadata={
+                "listing_id": listing_id,
+                "slug": slug,
+                "category": std_category,
+            },
+        )
+
+    def listing_target_from_url(self, url: str) -> IngestionTarget:
+        """Build a listing target from a normalized Mudafy listing URL."""
+
+        normalized = _normalize_listing_url(url)
+        if normalized is None:
+            raise ValueError(f"URL is not a Mudafy listing detail URL: {url}")
+        parsed = urlparse(normalized)
+        parts = parsed.path.strip("/").split("/")
+        category = parts[0]
+        rest = parts[1]
+        match = re.match(r"^(.+)-(?P<id>\d+)$", rest)
+        if not match:
+            raise ValueError(f"URL is not a Mudafy listing detail URL: {url}")
+        listing_id = match.group("id")
+        slug = match.group(1)
+        return self.listing_target(listing_id=listing_id, category=category, slug=slug)
+
+    @classmethod
+    def search_target(
+        cls,
+        *,
+        criteria: MudafySearchCriteria,
+        page: int,
+    ) -> IngestionTarget:
+        """Build a Bronze target for one Mudafy search-results page."""
+
+        return IngestionTarget(
+            target_id=f"mudafy-search-{criteria.target_key()}-page-{page}",
+            kind=TargetKind.SEARCH_RESULTS,
+            uri=criteria.build_url(page=page),
+            metadata={
+                "page": str(page),
+                "page_size": str(criteria.page_size),
+                "criteria_label": criteria.label or "",
+            },
+        )
+
+    @classmethod
+    def search_targets(
+        cls,
+        *,
+        criteria: MudafySearchCriteria,
+        pages: Sequence[int],
+    ) -> tuple[IngestionTarget, ...]:
+        """Build Bronze targets for multiple Mudafy search-results pages."""
+
+        return tuple(cls.search_target(criteria=criteria, page=page) for page in pages)
+
+    def discover_listing_targets(self, payload: bytes | str) -> tuple[IngestionTarget, ...]:
+        """Discover listing-detail targets from raw Mudafy search HTML."""
+
+        html = (
+            payload.decode("utf-8", errors="replace")
+            if isinstance(payload, bytes)
+            else payload
+        )
+
+        parser = _MudafyListingLinkParser()
+        parser.feed(html)
+
+        discovered_urls: list[str] = []
+        seen: set[str] = set()
+        script_candidates = (
+            _path_to_url(match.group("path"))
+            for match in _LISTING_PATH_PATTERN.finditer(html)
+        )
+
+        for candidate in [*parser.hrefs, *script_candidates]:
+            normalized = _normalize_listing_url(candidate)
+            if normalized is None or normalized in seen:
+                continue
+            seen.add(normalized)
+            discovered_urls.append(normalized)
+
+        return tuple(self.listing_target_from_url(url) for url in discovered_urls)
+
+
+class _MudafyListingLinkParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.hrefs: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() != "a":
+            return
+
+        for key, value in attrs:
+            if key.lower() == "href" and value:
+                self.hrefs.append(value)
+
+
+def _path_to_url(path: str) -> str:
+    return urljoin(MUDAFY_HOME_URL, path)
+
+
+def _normalize_listing_url(candidate: str) -> str | None:
+    absolute = urljoin(MUDAFY_HOME_URL, candidate)
+    parsed = urlparse(absolute)
+    hostname = parsed.hostname.lower() if parsed.hostname else ""
+    if hostname not in {"mudafy.com.ar", "www.mudafy.com.ar"}:
+        return None
+
+    path = parsed.path.strip("/")
+    parts = path.split("/")
+    if len(parts) != 2:
+        return None
+
+    category, rest = parts
+    match = re.match(r"^(.+)-(?P<id>\d+)$", rest)
+    if not match:
+        return None
+
+    listing_id = match.group("id")
+    slug = match.group(1)
+
+    # Standardize category name to plural for canonical URLs
+    category_map = {
+        "departamento": "departamentos",
+        "casa": "casas",
+        "oficina": "oficinas",
+        "terreno": "terrenos",
+        "comercio": "comercios",
+        "local": "locales",
+        "lote": "lotes",
+        "cochera": "cocheras",
+        "ph": "ph",
+        "quinta": "quintas",
+        "galpon": "galpones",
+        "edificio": "edificios",
+        "campo": "campos",
+        "propiedades": "propiedades",
+    }
+    std_category = category_map.get(category.lower(), category.lower())
+
+    return f"https://mudafy.com.ar/{std_category}/{slug}-{listing_id}"
