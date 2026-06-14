@@ -7,7 +7,7 @@ import threading
 import time
 from collections.abc import Callable
 from email.utils import parsedate_to_datetime
-from typing import TypeVar
+from typing import Protocol, TypeVar
 
 import httpx
 
@@ -16,7 +16,17 @@ from inmob.ingestion.contracts import PolitenessProfile, RetryProfile
 
 RETRYABLE_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504})
 
-T = TypeVar("T", bound=httpx.Response)
+
+class StatusResponse(Protocol):
+    @property
+    def status_code(self) -> int: ...
+
+    @property
+    def headers(self) -> dict[str, str] | httpx.Headers: ...
+
+
+T = TypeVar("T", bound=StatusResponse)
+
 
 
 class TokenBucket:

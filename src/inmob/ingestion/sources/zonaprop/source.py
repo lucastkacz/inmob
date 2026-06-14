@@ -14,6 +14,7 @@ from urllib.parse import urljoin, urlparse
 
 from inmob.ingestion.contracts import (
     IngestionRequest,
+    IngestionResponse,
     IngestionTarget,
     PolitenessProfile,
     RetryProfile,

@@ -392,8 +392,6 @@ class RemaxSource(RealEstateWebSource):
         hostname = urlparse(response.request.target.uri).hostname
         if hostname != "www.remax.com.ar":
             return False
-        if response.request.target.kind != TargetKind.LISTING_DETAIL:
-            return False
         if response.headers.get("x-amzn-waf-action") == "challenge":
             return True
         return response.status_code == 202 and b"awsWaf" in response.payload

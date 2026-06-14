@@ -13,7 +13,6 @@ from html.parser import HTMLParser
 from urllib.parse import urljoin, urlparse
 
 from inmob.ingestion.contracts import (
-    IngestionRequest,
     IngestionTarget,
     PolitenessProfile,
     RetryProfile,
