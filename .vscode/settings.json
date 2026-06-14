@@ -1,0 +1,8 @@
+{
+  "files.exclude": {
+    "**/__pycache__": true
+  },
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+  "python.terminal.activateEnvironment": true,
+  "python.venvPath": "${workspaceFolder}"
+}
