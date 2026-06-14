@@ -13,6 +13,12 @@ REMAX_BUY_PATH = "/listings/buy"
 REMAX_API_SEARCH_URL = (
     "https://api-ar.redremax.com/remaxweb-ar/api/listings/findAllWithEntrepreneurships"
 )
+REMAX_API_LISTING_BY_SLUG_URL = (
+    "https://api-ar.redremax.com/remaxweb-ar/api/listings/findBySlug"
+)
+REMAX_API_ENTREPRENEURSHIP_BY_SLUG_URL = (
+    "https://api-ar.redremax.com/remaxweb-ar/api/entrepreneurships/findBySlug"
+)
 
 
 @dataclass(frozen=True, slots=True)

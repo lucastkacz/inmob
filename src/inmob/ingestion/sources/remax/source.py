@@ -4,15 +4,19 @@ This module owns RE/MAX-specific acquisition rules: URL construction,
 source identity, and technical listing discovery. It deliberately avoids
 extracting real estate facts such as price, area, rooms, or address.
 """
-
 from __future__ import annotations
 
+import json
 import re
+import shutil
 from collections.abc import Sequence
+from pathlib import Path
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlparse
 
 from inmob.ingestion.contracts import (
+    IngestionRequest,
+    IngestionResponse,
     IngestionTarget,
     PolitenessProfile,
     RetryProfile,
@@ -21,6 +25,8 @@ from inmob.ingestion.contracts import (
 )
 from inmob.ingestion.sources.base import RealEstateWebSource
 from inmob.ingestion.sources.remax.search import (
+    REMAX_API_ENTREPRENEURSHIP_BY_SLUG_URL,
+    REMAX_API_LISTING_BY_SLUG_URL,
     REMAX_API_SEARCH_URL,
     REMAX_BUY_PATH,
     REMAX_HOME_URL,
@@ -44,6 +50,10 @@ _LISTING_PATH_PATTERN = re.compile(
     r"(?P<path>/listings/[A-Za-z0-9][^\"'<>\\\s?]*)"
 )
 _LISTING_SLUG_PATTERN = re.compile(r'"slug"\s*:\s*"(?P<slug>[a-z0-9][a-z0-9-]*)"')
+_CHROME_EXECUTABLE_CANDIDATES = (
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+)
 
 
 class RemaxSource(RealEstateWebSource):
@@ -87,12 +97,20 @@ class RemaxSource(RealEstateWebSource):
         return self.DEFAULT_HEADERS
 
     def headers_for_target(self, target: IngestionTarget) -> dict[str, str]:
-        if target.kind == TargetKind.API_ENDPOINT:
+        hostname = urlparse(target.uri).hostname
+        if target.kind == TargetKind.API_ENDPOINT or hostname == "api-ar.redremax.com":
             return {
                 **self.DEFAULT_HEADERS,
                 "accept": "application/json, text/plain, */*",
             }
         return self.DEFAULT_HEADERS
+
+    def fetch(self, request: IngestionRequest) -> IngestionResponse:
+        response = super().fetch(request)
+        if self._should_refresh_waf_session(response):
+            self._refresh_waf_session(request.target.uri)
+            response = super().fetch(request)
+        return response
 
     @classmethod
     def listing_target(cls, *, slug: str, url: str) -> IngestionTarget:
@@ -103,6 +121,57 @@ class RemaxSource(RealEstateWebSource):
             kind=TargetKind.LISTING_DETAIL,
             uri=url,
             metadata={"slug": slug},
+        )
+
+    @classmethod
+    def entrepreneurship_target(cls, *, slug: str, url: str) -> IngestionTarget:
+        """Build a Bronze target for a RE/MAX entrepreneurship detail page."""
+
+        return IngestionTarget(
+            target_id=f"remax-entrepreneurship-{slug}",
+            kind=TargetKind.LISTING_DETAIL,
+            uri=url,
+            metadata={"slug": slug, "detail_type": "entrepreneurship"},
+        )
+
+    @classmethod
+    def api_listing_target(cls, *, slug: str) -> IngestionTarget:
+        """Build a Bronze target for one RE/MAX listing detail API payload."""
+
+        return IngestionTarget(
+            target_id=f"remax-api-listing-{slug}",
+            kind=TargetKind.LISTING_DETAIL,
+            uri=f"{REMAX_API_LISTING_BY_SLUG_URL}/{slug}",
+            metadata={
+                "slug": slug,
+                "public_url": _path_to_url(f"/listings/{slug}"),
+                "api_url": REMAX_API_LISTING_BY_SLUG_URL,
+            },
+        )
+
+    @classmethod
+    def api_entrepreneurship_target(
+        cls,
+        *,
+        slug: str,
+        entity_id: str | None = None,
+    ) -> IngestionTarget:
+        """Build a Bronze target for one RE/MAX entrepreneurship detail API payload."""
+
+        metadata = {
+            "slug": slug,
+            "public_url": _path_to_url(f"/proyectos/{slug}"),
+            "api_url": REMAX_API_ENTREPRENEURSHIP_BY_SLUG_URL,
+            "detail_type": "entrepreneurship",
+        }
+        if entity_id:
+            metadata["entity_id"] = entity_id
+
+        return IngestionTarget(
+            target_id=f"remax-api-entrepreneurship-{slug}",
+            kind=TargetKind.LISTING_DETAIL,
+            uri=f"{REMAX_API_ENTREPRENEURSHIP_BY_SLUG_URL}/{slug}",
+            metadata=metadata,
         )
 
     def listing_target_from_url(self, url: str) -> IngestionTarget:
@@ -177,19 +246,124 @@ class RemaxSource(RealEstateWebSource):
         return tuple(cls.api_search_target(criteria=criteria, page=page) for page in pages)
 
     def discover_listing_targets(self, payload: bytes | str) -> tuple[IngestionTarget, ...]:
-        """Discover listing-detail targets from raw RE/MAX search HTML.
+        """Discover listing-detail targets from raw RE/MAX search payloads.
 
         This is Bronze crawl-frontier discovery only. It extracts URLs/slugs so
-        the raw detail pages can be landed later; it does not extract property
-        attributes.
+        raw detail payloads can be landed later; it does not extract property
+        attributes. Search API payloads produce detail API targets, while HTML
+        search pages produce public detail-page targets.
         """
 
-        html = (
+        text = (
             payload.decode("utf-8", errors="replace")
             if isinstance(payload, bytes)
             else payload
         )
+        api_targets = self._discover_api_listing_targets(text)
+        if api_targets:
+            return api_targets
 
+        return self._discover_html_listing_targets(text)
+
+    def discover_public_detail_targets(
+        self, payload: bytes | str
+    ) -> tuple[IngestionTarget, ...]:
+        """Discover public HTML detail-page targets from a RE/MAX search payload."""
+
+        text = (
+            payload.decode("utf-8", errors="replace")
+            if isinstance(payload, bytes)
+            else payload
+        )
+        api_targets = self._discover_api_public_detail_targets(text)
+        if api_targets:
+            return api_targets
+
+        return self._discover_html_listing_targets(text)
+
+    def _discover_api_listing_targets(self, payload_text: str) -> tuple[IngestionTarget, ...]:
+        """Discover listing detail API targets from the RE/MAX search API payload."""
+
+        try:
+            decoded = json.loads(payload_text)
+        except json.JSONDecodeError:
+            return ()
+
+        data = decoded.get("data")
+        if not isinstance(data, dict):
+            return ()
+
+        items = data.get("data")
+        if not isinstance(items, list):
+            return ()
+
+        discovered: list[IngestionTarget] = []
+        seen: set[str] = set()
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            slug = item.get("slug")
+            if not isinstance(slug, str) or not slug or slug in seen:
+                continue
+            seen.add(slug)
+            entity_id = item.get("entityId")
+            if item.get("entrepreneurship") is True:
+                discovered.append(
+                    self.api_entrepreneurship_target(
+                        slug=slug,
+                        entity_id=entity_id if isinstance(entity_id, str) else None,
+                    )
+                )
+            else:
+                discovered.append(self.api_listing_target(slug=slug))
+
+        return tuple(discovered)
+
+    def _discover_api_public_detail_targets(
+        self, payload_text: str
+    ) -> tuple[IngestionTarget, ...]:
+        """Discover public HTML detail targets from the RE/MAX search API payload."""
+
+        try:
+            decoded = json.loads(payload_text)
+        except json.JSONDecodeError:
+            return ()
+
+        data = decoded.get("data")
+        if not isinstance(data, dict):
+            return ()
+
+        items = data.get("data")
+        if not isinstance(items, list):
+            return ()
+
+        discovered: list[IngestionTarget] = []
+        seen: set[str] = set()
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            slug = item.get("slug")
+            if not isinstance(slug, str) or not slug or slug in seen:
+                continue
+            seen.add(slug)
+            if item.get("entrepreneurship") is True:
+                discovered.append(
+                    self.entrepreneurship_target(
+                        slug=slug,
+                        url=_path_to_url(f"/proyectos/{slug}"),
+                    )
+                )
+            else:
+                discovered.append(
+                    self.listing_target(
+                        slug=slug,
+                        url=_path_to_url(f"/listings/{slug}"),
+                    )
+                )
+
+        return tuple(discovered)
+
+    def _discover_html_listing_targets(self, html: str) -> tuple[IngestionTarget, ...]:
         parser = _RemaxListingLinkParser()
         parser.feed(html)
 
@@ -213,6 +387,69 @@ class RemaxSource(RealEstateWebSource):
             discovered_urls.append(normalized)
 
         return tuple(self.listing_target_from_url(url) for url in discovered_urls)
+
+    def _should_refresh_waf_session(self, response: IngestionResponse) -> bool:
+        hostname = urlparse(response.request.target.uri).hostname
+        if hostname != "www.remax.com.ar":
+            return False
+        if response.request.target.kind != TargetKind.LISTING_DETAIL:
+            return False
+        if response.headers.get("x-amzn-waf-action") == "challenge":
+            return True
+        return response.status_code == 202 and b"awsWaf" in response.payload
+
+    def _refresh_waf_session(self, url: str) -> None:
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError as exc:
+            raise RuntimeError(
+                "RE/MAX returned an AWS WAF challenge; install playwright to refresh "
+                "the browser session before retrying HTML fetches."
+            ) from exc
+
+        chrome_path = _chrome_executable_path()
+        if chrome_path is None:
+            raise RuntimeError(
+                "RE/MAX returned an AWS WAF challenge, but no Chrome/Chromium "
+                "executable was found for the browser fallback."
+            )
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(
+                executable_path=chrome_path,
+                headless=True,
+                args=("--disable-blink-features=AutomationControlled",),
+            )
+            context = browser.new_context(
+                user_agent=self.DEFAULT_HEADERS["user-agent"],
+                locale="es-AR",
+            )
+            page = context.new_page()
+            page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+            page.wait_for_timeout(8_000)
+            cookies = context.cookies("https://www.remax.com.ar")
+            browser.close()
+
+        client = self._clients.get(self.definition.source_id)
+        if client is None:
+            return
+
+        for cookie in cookies:
+            name = cookie.get("name")
+            value = cookie.get("value")
+            if not isinstance(name, str) or not isinstance(value, str):
+                continue
+            domain = cookie.get("domain")
+            path = cookie.get("path")
+            cookie_domain = domain if isinstance(domain, str) and domain else "www.remax.com.ar"
+            cookie_path = path if isinstance(path, str) and path else "/"
+            client.cookies.set(name, value, domain=cookie_domain, path=cookie_path)
+            client.cookies.set(
+                name,
+                value,
+                domain=cookie_domain.lstrip("."),
+                path=cookie_path,
+            )
 
 
 class _RemaxListingLinkParser(HTMLParser):
@@ -256,3 +493,16 @@ def _listing_slug_from_url(url: str) -> str:
     if normalized is None:
         raise ValueError(f"URL is not a RE/MAX listing detail URL: {url}")
     return normalized.rstrip("/").split("/")[-1]
+
+
+def _chrome_executable_path() -> str | None:
+    for command in ("google-chrome", "chromium", "chromium-browser"):
+        executable = shutil.which(command)
+        if executable:
+            return executable
+
+    for candidate in _CHROME_EXECUTABLE_CANDIDATES:
+        if Path(candidate).exists():
+            return candidate
+
+    return None
