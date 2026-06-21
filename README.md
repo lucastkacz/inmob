@@ -60,6 +60,130 @@ logs/ingest_YYYY-MM-DD_HH-mm-ss.log
 
 The log includes command start/end, source summaries, fetch status, saved payload paths, traffic policy, politeness waits, retries, and per-source traffic summaries.
 
+## Silver CLI
+
+Silver is the local, replayable standardization step. It reads Bronze raw
+artifacts from `data/raw`, extracts stable structured listing facts, and writes
+queryable current state plus observation history to SQLite.
+
+Run Silver:
+
+```bash
+PYTHONPATH=src poetry run inmob silver \
+  --raw-dir data/raw \
+  --db-path data/silver/inmob.sqlite \
+  --quarantine-dir data/quarantine \
+  --log-level INFO \
+  --log-file-level DEBUG
+```
+
+Main outputs:
+
+```text
+data/silver/inmob.sqlite
+data/quarantine/{source}/{raw_artifact_id}_quarantine.json
+logs/ingest_YYYY-MM-DD_HH-mm-ss.log
+```
+
+SQLite tables:
+
+```text
+listings_current             One current row per (source_id, source_listing_id).
+listing_observations         One replayable observation per raw artifact.
+listing_attributes_current   Queryable amenities, booleans, and source-specific filters.
+silver_quarantine            Parser/validation failures with raw paths and reasons.
+```
+
+Current v2 Silver extracts:
+
+- Lineage: source, source listing id, raw artifact id, capture time, payload hash, parser id/version.
+- Commercial facts: price, currency, expenses, price visibility.
+- Surfaces: total, covered, uncovered, semicovered, terrace, exclusive m2.
+- Location: address, street, neighborhood, city, province, postal code, commune, map address, latitude, longitude.
+- Seller/contact: seller/agency/office, license, phone, email, WhatsApp, contact URL.
+- Listing facts: operation type, property type/subtype, rooms, bedrooms, bathrooms, toilettes, parking, age, construction year, floor, building floors, orientation, disposition, brightness, condition.
+- Source IDs: advertiser/agency/branch/office/internal/posting code, external reference.
+- Filterable attributes: amenities and booleans from each source, stored in `listing_attributes_current`.
+
+Source parser notes:
+
+- `cabaprop` and `remax` are JSON-first and usually have the best structured coverage.
+- `zonaprop`, `argenprop`, `properati`, and `mudafy` are HTML/script-state parsers.
+- `mudafy` uses Next.js/RSC script chunks; Silver parses the visible structured `fields` block where possible.
+- `zonaprop` development listings (`emprendimiento`) may have location/views/amenities but no unit price or surface in the saved detail page.
+
+Known limitations:
+
+- Static raw HTML does not always contain every field visible in the browser. Some contact data, map state, unit details, phone numbers, and WhatsApp links can appear only after JavaScript runs or after a click.
+- Bronze currently saves the fetched payload, not a fully interacted browser state. If a field is missing from Silver and present on the live site, the next fix is usually in the scraper: use Playwright/browser interaction, click reveal buttons, expand sections, wait for script state/network responses, then save the richer raw evidence.
+- Numeric source codes are preserved when no reliable label exists. Do not invent mappings without source proof.
+- Description text is intentionally not used for analytics because it is free-form and unstable.
+
+Useful Silver queries:
+
+```bash
+# Counts by table.
+sqlite3 data/silver/inmob.sqlite "
+SELECT 'listings_current', count(*) FROM listings_current
+UNION ALL SELECT 'listing_attributes_current', count(*) FROM listing_attributes_current
+UNION ALL SELECT 'listing_observations', count(*) FROM listing_observations
+UNION ALL SELECT 'silver_quarantine', count(*) FROM silver_quarantine;
+"
+
+# Coverage by source.
+sqlite3 -header -column data/silver/inmob.sqlite "
+SELECT
+  source_id,
+  count(*) AS rows,
+  sum(price_amount IS NOT NULL) AS price,
+  sum(surface_total_m2 IS NOT NULL) AS total_m2,
+  sum(surface_covered_m2 IS NOT NULL) AS covered_m2,
+  sum(latitude IS NOT NULL AND longitude IS NOT NULL) AS coords,
+  sum(address IS NOT NULL) AS address,
+  sum(views_count IS NOT NULL) AS views
+FROM listings_current
+GROUP BY source_id
+ORDER BY source_id;
+"
+
+# Export all rows for one source to CSV.
+sqlite3 -header -csv data/silver/inmob.sqlite "
+SELECT *
+FROM listings_current
+WHERE source_id = 'zonaprop'
+ORDER BY source_listing_id;
+" > data/silver/zonaprop_all.csv
+
+open data/silver/zonaprop_all.csv
+
+# Export all amenities/attributes for one source to CSV.
+sqlite3 -header -csv data/silver/inmob.sqlite "
+SELECT *
+FROM listing_attributes_current
+WHERE source_id = 'zonaprop'
+ORDER BY source_listing_id, attribute_key;
+" > data/silver/zonaprop_attributes.csv
+
+open data/silver/zonaprop_attributes.csv
+
+# Same pattern for another source.
+sqlite3 -header -csv data/silver/inmob.sqlite "
+SELECT *
+FROM listings_current
+WHERE source_id = 'argenprop'
+ORDER BY source_listing_id;
+" > data/silver/argenprop_all.csv
+```
+
+LLM handoff summary for this branch:
+
+- Branch: `feature/silver-processing`.
+- Added `inmob silver` to the Typer CLI.
+- Added Silver contracts, parsers, runner, SQLite store, quarantine support, and fixture-backed unit tests under `src/inmob/standardization` and `tests/unit/standardization`.
+- Added additive SQLite migration behavior so re-running Silver upgrades an existing `data/silver/inmob.sqlite`.
+- Added `listing_attributes_current` to avoid hundreds of sparse amenity columns while keeping filter fields queryable.
+- Last validated local run parsed 90/90 local raw artifacts, quarantined 0, and produced 1717 current attribute rows.
+
 ## Common Commands
 
 Run all sources with the default 15 properties each:

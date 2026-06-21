@@ -1,0 +1,35 @@
+{
+  "_id": "caba-1",
+  "title": "Departamento CABA",
+  "status": "published",
+  "real_estate_id": "fixture-agency",
+  "branch_office_id": "fixture-branch",
+  "operation_type": 1,
+  "sub_property_type": 14,
+  "price": {"total": 120000, "currency": 1, "expenses": 50000, "expensesCurrency": 2},
+  "surface": {"totalSurface": 86, "coveredSurface": 80, "uncoveredSurface": 6, "semiCoveredSurface": 0, "exclusiveSurface": 5},
+  "location": {
+    "street": "Av. Test",
+    "number": "123",
+    "locality": "Palermo",
+    "cp": "C1000",
+    "area_level_2": "Comuna 14",
+    "area_level_1": "Capital Federal",
+    "lat": -34.58,
+    "lng": -58.42
+  },
+  "characteristics": {
+    "ambience": 3,
+    "bedrooms": 2,
+    "bathrooms": 2,
+    "toilettes": 1,
+    "garage": {"quantity": 1},
+    "apto_profesional": true
+  },
+  "real_estate": {"name": "Broker Uno", "email": "ventas@example.com"},
+  "branch_office": {"phoneNumber": "+5411000000", "whatsapp": "https://wa.me/5411000000"},
+  "extras": {"balcony": true},
+  "ambiences_types": {"laundry": true},
+  "created_at": "2026-01-01T00:00:00Z",
+  "property_type": "Departamento"
+}

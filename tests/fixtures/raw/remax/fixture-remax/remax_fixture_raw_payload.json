@@ -1,0 +1,32 @@
+{
+  "data": {
+    "id": "remax-id-1",
+    "slug": "remax-1",
+    "internalId": "RX-001",
+    "title": "Departamento Remax",
+    "price": 310000,
+    "currency": {"value": "USD"},
+    "expensesPrice": 45000,
+    "expensesCurrency": {"value": "ARS"},
+    "dimensionTotalBuilt": 86,
+    "dimensionCovered": 80,
+    "dimensionUncovered": 6,
+    "dimensionSemicovered": 0,
+    "displayAddress": "Av. Santa Fe 1000",
+    "geo": {"neighborhood": "Recoleta", "citie": "Capital Federal", "state": "CABA"},
+    "location": {"coordinates": [-58.39, -34.59]},
+    "associate": {
+      "name": "Agente Remax",
+      "phones": [{"value": "+5411444555"}],
+      "emails": [{"value": "agente@example.com"}],
+      "office": {"name": "Remax Oficina"}
+    },
+    "features": [{"lang": "Balcon"}],
+    "studio": 3,
+    "bedrooms": 2,
+    "bathrooms": 2,
+    "toilets": 1,
+    "parkingSpaces": 1,
+    "operation": {"value": "Departamento"}
+  }
+}
