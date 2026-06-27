@@ -1,4 +1,4 @@
-"""Bronze ingestion runner used by the CLI."""
+"""Bronze runner used by the CLI."""
 
 from __future__ import annotations
 
@@ -16,16 +16,16 @@ from loguru import logger
 
 from inmob.cli.bronze.config import DEFAULT_PROPERTY_LIMIT, DEFAULT_SOURCES_CONFIG
 from inmob.cli.bronze.store import PropertyFolderRawArtifactStore
-from inmob.ingestion.contracts import IngestionRunContext, IngestionTarget, PolitenessProfile
-from inmob.ingestion.traffic import TrafficSnapshot
+from inmob.bronze.contracts import BronzeRunContext, BronzeTarget, PolitenessProfile
+from inmob.bronze.traffic import TrafficSnapshot
 
 
-class BronzeIngestionError(ValueError):
-    """Raised when a Bronze ingestion request is invalid."""
+class BronzeError(ValueError):
+    """Raised when a Bronze request is invalid."""
 
 
 @dataclass(frozen=True)
-class BronzeIngestionRunner:
+class BronzeRunner:
     """Runs Bronze raw scraping for one or many configured sources."""
 
     sources_config: dict[str, dict[str, Any]] = field(default_factory=lambda: DEFAULT_SOURCES_CONFIG)
@@ -49,7 +49,7 @@ class BronzeIngestionRunner:
         target_dir.mkdir(parents=True, exist_ok=True)
 
         logger.info(
-            "Starting ingestion target_dir={} source_count={} sources={}",
+            "Starting Bronze target_dir={} source_count={} sources={}",
             str(target_dir.resolve()),
             len(sources_to_scrape),
             sorted(sources_to_scrape),
@@ -85,10 +85,10 @@ class BronzeIngestionRunner:
                     )
                     results[source_id] = 0
 
-        logger.info("Ingestion job summary start")
+        logger.info("Bronze job summary start")
         for source_id, success_count in sorted(results.items()):
             logger.bind(source_id=source_id).info(
-                "Ingestion source summary success_count={}",
+                "Bronze source summary success_count={}",
                 success_count,
             )
         return results
@@ -134,10 +134,10 @@ class BronzeIngestionRunner:
         source_logger.info("Target page range={} page_size={}", pages_range, criteria.page_size)
 
         run_id = f"cli-run-{source_id}-{uuid4().hex[:8]}"
-        context = IngestionRunContext(run_id=run_id, requested_at=datetime.now(UTC))
+        context = BronzeRunContext(run_id=run_id, requested_at=datetime.now(UTC))
         source_logger = source_logger.bind(run_id=run_id)
         source_logger.info(
-            "Created ingestion run requested_at={} target_dir={}",
+            "Created Bronze run requested_at={} target_dir={}",
             context.requested_at.isoformat(),
             str(target_dir),
         )
@@ -191,11 +191,11 @@ class BronzeIngestionRunner:
         self,
         *,
         source_class: Any,
-        search_targets: tuple[IngestionTarget, ...],
-        context: IngestionRunContext,
+        search_targets: tuple[BronzeTarget, ...],
+        context: BronzeRunContext,
         source_logger: Any,
-    ) -> dict[str, IngestionTarget]:
-        discovered_by_uri: dict[str, IngestionTarget] = {}
+    ) -> dict[str, BronzeTarget]:
+        discovered_by_uri: dict[str, BronzeTarget] = {}
         with source_class(targets=search_targets) as search_source:
             search_source.reset_traffic_stats()
             _log_traffic_policy(source_logger, search_source.definition.politeness)
@@ -242,8 +242,8 @@ class BronzeIngestionRunner:
         self,
         *,
         source_class: Any,
-        listing_targets: tuple[IngestionTarget, ...],
-        context: IngestionRunContext,
+        listing_targets: tuple[BronzeTarget, ...],
+        context: BronzeRunContext,
         source_logger: Any,
         target_dir: Path,
     ) -> int:
@@ -312,7 +312,7 @@ class BronzeIngestionRunner:
         norm_source = source.lower()
         if norm_source not in self.sources_config:
             valid_sources = ", ".join(self.sources_config.keys())
-            raise BronzeIngestionError(
+            raise BronzeError(
                 f"Unknown source source={source} valid_sources={valid_sources}"
             )
         return {norm_source: self.sources_config[norm_source]}
@@ -328,23 +328,23 @@ class BronzeIngestionRunner:
     @staticmethod
     def _validate_window(*, limit: int | None, pages: int | None) -> None:
         if limit is not None and limit <= 0:
-            raise BronzeIngestionError("--limit must be greater than zero")
+            raise BronzeError("--limit must be greater than zero")
         if pages is not None and pages <= 0:
-            raise BronzeIngestionError("--pages must be greater than zero")
+            raise BronzeError("--pages must be greater than zero")
 
     @staticmethod
     def _load_overrides(config_path: Path | None) -> dict[str, Any]:
         if config_path is None:
             return {}
         if not config_path.exists():
-            raise BronzeIngestionError(f"Config file not found path={config_path}")
+            raise BronzeError(f"Config file not found path={config_path}")
         try:
             with config_path.open("r", encoding="utf-8") as f:
                 overrides = cast(dict[str, Any], json.load(f))
             logger.info("Loaded custom criteria overrides path={}", config_path)
             return overrides
         except Exception as exc:
-            raise BronzeIngestionError(f"Error reading config file path={config_path}") from exc
+            raise BronzeError(f"Error reading config file path={config_path}") from exc
 
     @staticmethod
     def _page_range(

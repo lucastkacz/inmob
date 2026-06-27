@@ -1,4 +1,4 @@
-"""Loguru configuration for operational ingestion logs."""
+"""Loguru configuration for operational Bronze logs."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Typer-based CLI for running Inmob ingestion jobs."""
+"""Typer-based CLI for running Inmob Bronze jobs."""
 
 from __future__ import annotations
 
@@ -12,11 +12,11 @@ from loguru import logger
 from inmob.cli.bronze import (
     DEFAULT_PROPERTY_LIMIT,
     DEFAULT_RAW_DATA_DIR,
-    BronzeIngestionError,
-    BronzeIngestionRunner,
+    BronzeError,
+    BronzeRunner,
 )
 from inmob.logging import configure_logging
-from inmob.standardization import SilverProcessingError, SilverProcessingRunner
+from inmob.silver import SilverProcessingError, SilverProcessingRunner
 
 
 app = typer.Typer(
@@ -65,7 +65,7 @@ def ingest(
     log_dir: Path = typer.Option(
         Path("logs"),
         "--log-dir",
-        help="Directory where rotating ingestion log files are written.",
+        help="Directory where rotating Bronze log files are written.",
     ),
     log_level: str = typer.Option(
         "INFO",
@@ -80,15 +80,15 @@ def ingest(
     log_rotation: str = typer.Option(
         "10 MB",
         "--log-rotation",
-        help="Loguru rotation policy for ingestion log files.",
+        help="Loguru rotation policy for Bronze log files.",
     ),
     log_retention: str = typer.Option(
         "14 days",
         "--log-retention",
-        help="Loguru retention policy for ingestion log files.",
+        help="Loguru retention policy for Bronze log files.",
     ),
 ) -> None:
-    """Execute raw property ingestion from multiple real estate search portals."""
+    """Execute raw property capture from multiple real estate search portals."""
     ingest_started_at = perf_counter()
     configure_logging(
         log_dir=log_dir,
@@ -98,7 +98,7 @@ def ingest(
         retention=log_retention,
     )
     logger.info(
-        "Ingestion command started source={} limit={} pages={} target_dir={} "
+        "Bronze command started source={} limit={} pages={} target_dir={} "
         "config_path={} log_dir={} log_level={} log_file_level={}",
         source,
         limit,
@@ -110,7 +110,7 @@ def ingest(
         log_file_level,
     )
 
-    runner = BronzeIngestionRunner()
+    runner = BronzeRunner()
     try:
         results = runner.run(
             source=source,
@@ -119,12 +119,12 @@ def ingest(
             target_dir=target_dir,
             config_path=config_path,
         )
-    except BronzeIngestionError as exc:
+    except BronzeError as exc:
         logger.error(str(exc))
         raise typer.Exit(code=1) from exc
 
     logger.info(
-        "Ingestion command finished elapsed_seconds={} results={}",
+        "Bronze command finished elapsed_seconds={} results={}",
         round(perf_counter() - ingest_started_at, 3),
         results,
     )

@@ -9,7 +9,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from inmob.ingestion.contracts import IngestionResponse, IngestionRunContext, RawArtifact
+from inmob.bronze.contracts import BronzeResponse, BronzeRunContext, RawArtifact
 
 
 class PropertyFolderRawArtifactStore:
@@ -27,8 +27,8 @@ class PropertyFolderRawArtifactStore:
     def persist(
         self,
         *,
-        context: IngestionRunContext,
-        response: IngestionResponse,
+        context: BronzeRunContext,
+        response: BronzeResponse,
     ) -> RawArtifact:
         target = response.request.target
         source_id = response.request.source_id

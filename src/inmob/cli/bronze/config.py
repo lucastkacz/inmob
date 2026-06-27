@@ -1,8 +1,8 @@
-"""Default CLI Bronze ingestion settings."""
+"""Default CLI Bronze settings."""
 
 from typing import Any
 
-from inmob.ingestion.sources import (
+from inmob.bronze.sources import (
     ArgenpropSearchCriteria,
     ArgenpropSource,
     CabapropSearchCriteria,
@@ -18,7 +18,8 @@ from inmob.ingestion.sources import (
 )
 
 
-DEFAULT_RAW_DATA_DIR = "data/raw"
+DEFAULT_BRONZE_DATA_DIR = "data/bronze"
+DEFAULT_RAW_DATA_DIR = DEFAULT_BRONZE_DATA_DIR
 DEFAULT_PROPERTY_LIMIT = 15
 
 # Targets "Capital Federal" / "CABA", buy/sale operation, sorted by newest first.
@@ -98,12 +99,16 @@ DEFAULT_SOURCES_CONFIG: dict[str, dict[str, Any]] = {
         "source_class": ZonapropSource,
         "criteria_class": ZonapropSearchCriteria,
         "page_index_starts_at": 1,
-        "search_targets_method": "search_targets",
+        "search_targets_method": "api_search_targets",
         "default_criteria": {
-            "operation": "venta",
-            "location": "capital-federal",
-            "property_type": "departamentos",
-            "sort": "publicado-descendente",
+            "filters": {
+                "tipoDeOperacion": "1",
+                "preTipoDeOperacion": "1",
+                "tipoDePropiedad": "2",
+                "province": 6,
+                "sort": "more_recent",
+            },
+            "public_url": "https://www.zonaprop.com.ar/departamentos-venta-capital-federal.html",
             "label": "zonaprop-caba-newest",
         },
     },

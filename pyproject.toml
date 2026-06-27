@@ -15,6 +15,7 @@ dependencies = [
     "typer>=0.20.0,<0.21.0",
     "python-dotenv>=1.2.1,<2.0.0",
     "playwright (>=1.60.0,<2.0.0)",
+    "curl-cffi (>=0.15.0,<0.16.0)",
 ]
 
 [tool.poetry]
@@ -25,7 +26,6 @@ inmob = "inmob.cli.cli:app"
 
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^9.0.2"
 ruff = "^0.14.8"
 mypy = "^1.19.0"
 
@@ -40,7 +40,3 @@ target-version = "py312"
 [tool.mypy]
 python_version = "3.12"
 strict = true
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["src"]
