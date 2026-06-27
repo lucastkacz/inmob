@@ -15,6 +15,7 @@ The current focus is architectural alignment before any technology stack, progra
 - [[06 - Decision Log]]
 - [[07 - Repository Structure]]
 - [[08 - Implementation and Run Log]]
+- [[09 - Lucas Zonaprop API and Gold Strategy Notes]]
 
 ## Documentation Rules
 
