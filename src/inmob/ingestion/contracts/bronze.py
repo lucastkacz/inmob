@@ -130,6 +130,7 @@ class IngestionResponse(BaseModel):
     captured_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     media_type: str | None = None
     headers: dict[str, str] = Field(default_factory=dict)
+    capture_metadata: dict[str, str] = Field(default_factory=dict)
     payload: bytes
 
     @field_validator("final_uri")
@@ -163,6 +164,7 @@ class RawArtifact(BaseModel):
     metadata_path: Path
     headers: dict[str, str] = Field(default_factory=dict)
     target_metadata: dict[str, str] = Field(default_factory=dict)
+    capture_metadata: dict[str, str] = Field(default_factory=dict)
 
     def to_json_ready_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable representation."""

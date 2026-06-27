@@ -14,6 +14,7 @@ The current focus is architectural alignment before any technology stack, progra
 - [[05 - Analytical Domain]]
 - [[06 - Decision Log]]
 - [[07 - Repository Structure]]
+- [[08 - Implementation and Run Log]]
 
 ## Documentation Rules
 
@@ -32,3 +33,7 @@ The platform follows a multi-hop immutable data pipeline:
 3. Analytical Enrichment
 
 Each layer communicates with the next layer only through persisted data artifacts. This keeps acquisition, parsing, validation, and analytical business logic independently evolvable.
+
+## Current Agent Entry Point
+
+Start with [[08 - Implementation and Run Log]] for the latest branch state, run commands, generated artifacts, and verification results.

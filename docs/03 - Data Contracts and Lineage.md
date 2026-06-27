@@ -42,6 +42,7 @@ Layer 2: Standardization and Validation.
 - Raw payload location
 - Payload checksum
 - Acquisition metadata
+- Capture metadata
 
 ### Explicitly Excluded Fields
 
@@ -55,6 +56,22 @@ Layer 2: Standardization and Validation.
 - Analytical classification
 
 These fields are excluded because their extraction would violate semantic blindness in Layer 1.
+
+### Capture Metadata
+
+`capture_metadata` records how the payload was captured without interpreting listing facts.
+
+Examples:
+
+- `browser_rendered`
+- `render_strategy`
+- `render_status`
+- `reveal_click_count`
+- `render_error`
+
+Allowed use: audit, replay, parser routing diagnostics, and source-change investigation.
+
+Forbidden use: treating capture metadata as listing data. It must not encode price, address, seller, surface, or other business facts.
 
 ### Source Grounding
 

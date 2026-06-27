@@ -16,6 +16,7 @@ from inmob.cli.bronze import (
     BronzeIngestionRunner,
 )
 from inmob.logging import configure_logging
+from inmob.standardization import SilverProcessingError, SilverProcessingRunner
 
 
 app = typer.Typer(
@@ -125,6 +126,66 @@ def ingest(
     logger.info(
         "Ingestion command finished elapsed_seconds={} results={}",
         round(perf_counter() - ingest_started_at, 3),
+        results,
+    )
+
+
+@app.command(name="silver")
+def silver(
+    raw_dir: Path = typer.Option(
+        Path(DEFAULT_RAW_DATA_DIR),
+        "--raw-dir",
+        help="Bronze raw artifact directory to process.",
+    ),
+    db_path: Path = typer.Option(
+        Path("data/silver/inmob.sqlite"),
+        "--db-path",
+        help="SQLite database path for Silver current state and observations.",
+    ),
+    quarantine_dir: Path = typer.Option(
+        Path("data/quarantine"),
+        "--quarantine-dir",
+        help="Directory where Silver quarantine artifacts are written.",
+    ),
+    log_dir: Path = typer.Option(
+        Path("logs"),
+        "--log-dir",
+        help="Directory where rotating processing log files are written.",
+    ),
+    log_level: str = typer.Option(
+        "INFO",
+        "--log-level",
+        help="Console log level (DEBUG, INFO, WARNING, ERROR).",
+    ),
+    log_file_level: str = typer.Option(
+        "INFO",
+        "--log-file-level",
+        help="File log level (use DEBUG for verbose diagnostics).",
+    ),
+) -> None:
+    """Process Bronze raw artifacts into Silver canonical listing state."""
+    started_at = perf_counter()
+    configure_logging(log_dir=log_dir, level=log_level, file_level=log_file_level)
+    logger.info(
+        "Silver command started raw_dir={} db_path={} quarantine_dir={} log_dir={}",
+        str(raw_dir),
+        str(db_path),
+        str(quarantine_dir),
+        str(log_dir),
+    )
+    try:
+        results = SilverProcessingRunner().run(
+            raw_dir=raw_dir,
+            db_path=db_path,
+            quarantine_dir=quarantine_dir,
+        )
+    except SilverProcessingError as exc:
+        logger.error(str(exc))
+        raise typer.Exit(code=1) from exc
+
+    logger.info(
+        "Silver command finished elapsed_seconds={} results={}",
+        round(perf_counter() - started_at, 3),
         results,
     )
 
