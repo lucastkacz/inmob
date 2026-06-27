@@ -60,6 +60,12 @@ logs/ingest_YYYY-MM-DD_HH-mm-ss.log
 
 The log includes command start/end, source summaries, fetch status, saved payload paths, traffic policy, politeness waits, retries, and per-source traffic summaries.
 
+Browser capture notes:
+
+- `argenprop`, `mudafy`, `properati`, and `zonaprop` listing-detail pages are fetched through Playwright because important HTML evidence can be rendered or revealed only after JavaScript runs.
+- The shared browser helper performs a bounded same-page reveal pass for safe expansion/map controls, records `capture_metadata`, and persists the final DOM as Bronze evidence.
+- Search/discovery pages still use regular HTTP where possible. `cabaprop` and `remax` stay API-first because their JSON payloads already carry better structured evidence.
+
 ## Silver CLI
 
 Silver is the local, replayable standardization step. It reads Bronze raw
@@ -81,6 +87,8 @@ Main outputs:
 
 ```text
 data/silver/inmob.sqlite
+data/silver/listings_current.csv
+data/silver/listing_attributes_current.csv
 data/quarantine/{source}/{raw_artifact_id}_quarantine.json
 logs/ingest_YYYY-MM-DD_HH-mm-ss.log
 ```
@@ -115,7 +123,9 @@ Source parser notes:
 Known limitations:
 
 - Static raw HTML does not always contain every field visible in the browser. Some contact data, map state, unit details, phone numbers, and WhatsApp links can appear only after JavaScript runs or after a click.
-- Bronze currently saves the fetched payload, not a fully interacted browser state. If a field is missing from Silver and present on the live site, the next fix is usually in the scraper: use Playwright/browser interaction, click reveal buttons, expand sections, wait for script state/network responses, then save the richer raw evidence.
+- HTML listing-detail Bronze capture for `argenprop`, `mudafy`, `properati`, and `zonaprop` uses a bounded Playwright reveal pass before saving HTML. Search pages still use regular HTTP except `zonaprop`, which already needs Playwright for acquisition.
+- The reveal pass is acquisition-only: Bronze clicks safe same-page expansion/map controls, logs the browser path, stores `capture_metadata`, and saves the final DOM. Silver remains responsible for parsing facts such as coordinates.
+- `cabaprop` and `remax` remain API-first. Do not replace structured API payloads with browser HTML unless the API stops carrying required evidence.
 - Numeric source codes are preserved when no reliable label exists. Do not invent mappings without source proof.
 - Description text is intentionally not used for analytics because it is free-form and unstable.
 
@@ -177,12 +187,23 @@ ORDER BY source_listing_id;
 
 LLM handoff summary for this branch:
 
-- Branch: `feature/silver-processing`.
+- Branch: `feature/bronze-augmentation`.
+- Bronze listing-detail HTML capture now uses shared Playwright rendering with bounded safe reveal clicks for `argenprop`, `mudafy`, `properati`, and `zonaprop`; `cabaprop` and `remax` stay API-first.
+- Bronze metadata now includes `capture_metadata` so downstream tools can tell whether a payload came from HTTP, browser render, or browser render plus reveal.
 - Added `inmob silver` to the Typer CLI.
 - Added Silver contracts, parsers, runner, SQLite store, quarantine support, and fixture-backed unit tests under `src/inmob/standardization` and `tests/unit/standardization`.
 - Added additive SQLite migration behavior so re-running Silver upgrades an existing `data/silver/inmob.sqlite`.
 - Added `listing_attributes_current` to avoid hundreds of sparse amenity columns while keeping filter fields queryable.
-- Last validated local run parsed 90/90 local raw artifacts, quarantined 0, and produced 1717 current attribute rows.
+- Added a Zonaprop coordinate fallback from rendered map marker HTML when script geolocation is missing.
+- Last validated local unit checks before the data refresh passed: `pytest tests/unit -q`, `ruff check src tests`, and `mypy src/inmob`.
+- Latest full data refresh on 2026-06-27:
+  - Bronze command: `PYTHONPATH=src poetry run inmob ingest --target-dir data/raw --log-dir logs --log-level INFO --log-file-level DEBUG`
+  - Bronze result: 15 listings per source, 90 new raw detail artifacts total, 0 command failures.
+  - Silver command: `PYTHONPATH=src poetry run inmob silver --raw-dir data/raw --db-path data/silver/inmob.sqlite --quarantine-dir data/quarantine --log-level INFO --log-file-level DEBUG`
+  - Silver result: 178 artifacts parsed, 0 quarantined, 178 `listings_current`, 3312 `listing_attributes_current`, 178 `listing_observations`.
+  - Fresh 2026-06-27 slice: 90 rows, exactly 15 per source.
+  - CSV exports: `data/silver/listings_current.csv` and `data/silver/listing_attributes_current.csv`.
+  - Logs: `logs/ingest_2026-06-27_11-20-09.log` for Bronze and `logs/ingest_2026-06-27_11-26-38.log` for Silver.
 
 ## Common Commands
 

@@ -33,6 +33,7 @@ class RawArtifactMetadata(BaseModel):
     metadata_path: Path
     headers: dict[str, str] = Field(default_factory=dict)
     target_metadata: dict[str, str] = Field(default_factory=dict)
+    capture_metadata: dict[str, str] = Field(default_factory=dict)
 
     @classmethod
     def from_file(cls, path: Path) -> RawArtifactMetadata:

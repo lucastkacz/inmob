@@ -163,6 +163,26 @@ Minimum conceptual signals:
 
 Enterprise Integration Patterns describes Message Store as a way to capture information about messages in a central location for reporting without disturbing loose coupling: [Enterprise Integration Patterns - Message Store](https://www.enterpriseintegrationpatterns.com/patterns/messaging/MessageStore.html).
 
+## Current Local Run Artifacts
+
+Latest full refresh on 2026-06-27:
+
+- Bronze log: `logs/ingest_2026-06-27_11-20-09.log`
+- Silver log: `logs/ingest_2026-06-27_11-26-38.log`
+- Silver database: `data/silver/inmob.sqlite`
+- Current listing export: `data/silver/listings_current.csv`
+- Current attribute export: `data/silver/listing_attributes_current.csv`
+
+Run outcome:
+
+- Bronze acquired 15 detail artifacts per source across 6 sources.
+- Silver parsed 178 artifacts, quarantined 0, and wrote 178 current listings.
+- Fresh 2026-06-27 slice contains 90 rows, exactly 15 per source.
+
+Operational caveat:
+
+- `data/` and `logs/` are ignored by default. They are local runtime outputs unless explicitly force-added for a snapshot commit.
+
 ## Traffic Politeness
 
 Acquisition must behave defensively and politely.

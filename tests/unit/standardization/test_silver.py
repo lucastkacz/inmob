@@ -93,6 +93,20 @@ def test_properati_area_value_becomes_total_surface() -> None:
     assert listing.features.condition == "Excelente"
 
 
+def test_zonaprop_marker_position_becomes_coordinates_when_script_geo_is_missing() -> None:
+    metadata = RawArtifactMetadata.from_file(_sample_metadata_path("zonaprop"))
+    payload = metadata.payload_path.read_text(encoding="utf-8").replace(
+        '"postingGeolocation": {"geolocation": {"latitude": "-34.592", "longitude": "-58.374"}},',
+        '"postingGeolocation": {},',
+    )
+    payload += '<gmp-advanced-marker position="-34.560893,-58.4429387"></gmp-advanced-marker>'
+
+    listing = parse_listing(metadata, payload.encode("utf-8"))
+
+    assert listing.location.latitude == -34.560893
+    assert listing.location.longitude == -58.4429387
+
+
 def test_quarantine_persists_failure(tmp_path: Path) -> None:
     metadata_path = _sample_metadata_path("cabaprop")
     metadata = RawArtifactMetadata.from_file(metadata_path)

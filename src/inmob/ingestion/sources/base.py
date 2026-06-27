@@ -19,6 +19,7 @@ from inmob.ingestion.contracts import (
     IngestionTarget,
     SourceDefinition,
 )
+from inmob.ingestion.sources.browser import fetch_rendered_html
 from inmob.ingestion.traffic import TrafficController
 from inmob.ingestion.traffic.controller import TrafficSnapshot
 
@@ -184,6 +185,44 @@ class RealEstateWebSource(ABC):
             headers=dict(response.headers),
             payload=response.content,
         )
+
+    def fetch_with_browser_rendering(self, request: IngestionRequest) -> IngestionResponse:
+        """Fetch one raw payload through Playwright when HTML needs browser state."""
+
+        if request.source_id != self.definition.source_id:
+            raise ValueError(
+                f"request source_id {request.source_id!r} does not match "
+                f"source_id {self.definition.source_id!r}"
+            )
+        self._ensure_allowed_uri(request.target.uri)
+
+        source_id = self.definition.source_id
+        request_logger = logger.bind(
+            source_id=source_id,
+            target_id=request.target.target_id,
+            target_kind=request.target.kind.value,
+        )
+        try:
+            response = self._traffic.request(
+                lambda: fetch_rendered_html(
+                    request=request,
+                    source_id=source_id,
+                    default_user_agent=self.default_headers.get("user-agent", ""),
+                    timeout_seconds=self._timeout_seconds,
+                    request_logger=request_logger,
+                ),
+                log_context={
+                    "source_id": source_id,
+                    "target_id": request.target.target_id,
+                    "target_kind": request.target.kind.value,
+                },
+            )
+        except Exception:
+            request_logger.exception("Playwright fetch failed uri={}", request.target.uri)
+            raise
+
+        self._ensure_allowed_uri(response.final_uri)
+        return response
 
     def close(self) -> None:
         """Close the underlying HTTP client session."""

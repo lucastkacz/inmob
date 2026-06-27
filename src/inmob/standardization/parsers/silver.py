@@ -447,6 +447,9 @@ def _parse_zonaprop(metadata: RawArtifactMetadata, payload: bytes) -> CanonicalL
     general_features = _json_after(text, "'generalFeatures':")
     prices = _json_after(text, "'pricesData':", opener="[")
     geolocation = _json_after(text, '"postingGeolocation":')
+    marker_latitude, marker_longitude = _zonaprop_marker_coordinates(text)
+    latitude = _nested_num(geolocation, ("geolocation", "latitude"))
+    longitude = _nested_num(geolocation, ("geolocation", "longitude"))
     price_amount, currency = _zonaprop_price(prices)
     publication_text = _regex(text, r"const antiquity =\s*'([^']+)'")
     posting_code = _regex(text, r"'postingCode':\s*\"([^\"]+)\"")
@@ -472,8 +475,8 @@ def _parse_zonaprop(metadata: RawArtifactMetadata, payload: bytes) -> CanonicalL
             address=_str(address.get("streetAddress") or _regex(text, r'"postingLocation":\{"address":\{"name":"([^"]+)"')),
             neighborhood=_str(address.get("addressRegion")),
             city=_str(address.get("addressLocality")),
-            latitude=_nested_num(geolocation, ("geolocation", "latitude")),
-            longitude=_nested_num(geolocation, ("geolocation", "longitude")),
+            latitude=latitude if latitude is not None else marker_latitude,
+            longitude=longitude if longitude is not None else marker_longitude,
         ),
         seller=SellerContact(agency_name=_regex(text, r'publisherName\s*=\s*"([^"]*)"') or None),
         publication_text=publication_text,
@@ -826,6 +829,16 @@ def _mudafy_map_address(text: str) -> str | None:
     if not match:
         return None
     return _clean(match.group(1).replace("%20", " ").replace("%2C", ","))
+
+
+def _zonaprop_marker_coordinates(text: str) -> tuple[float | None, float | None]:
+    match = re.search(
+        r"""position=["'](?P<lat>-?\d+(?:\.\d+)?),\s*(?P<lng>-?\d+(?:\.\d+)?)["']""",
+        text,
+    )
+    if not match:
+        return None, None
+    return _num(match.group("lat")), _num(match.group("lng"))
 
 
 def _data_test_value(text: str, key: str) -> str | None:

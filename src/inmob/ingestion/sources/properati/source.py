@@ -15,6 +15,8 @@ from urllib.parse import urljoin, urlparse
 from loguru import logger
 
 from inmob.ingestion.contracts import (
+    IngestionRequest,
+    IngestionResponse,
     IngestionTarget,
     PolitenessProfile,
     RetryProfile,
@@ -76,6 +78,12 @@ class ProperatiSource(RealEstateWebSource):
     @property
     def default_headers(self) -> dict[str, str]:
         return self.DEFAULT_HEADERS
+
+    def fetch(self, request: IngestionRequest) -> IngestionResponse:
+        """Fetch listing details with browser rendering; keep search pages as HTTP."""
+        if request.target.kind == TargetKind.LISTING_DETAIL:
+            return self.fetch_with_browser_rendering(request)
+        return super().fetch(request)
 
     @classmethod
     def listing_target(cls, *, listing_id: str) -> IngestionTarget:
