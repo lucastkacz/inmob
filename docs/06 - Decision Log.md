@@ -255,3 +255,41 @@ AWS Architecture Blog recommends jittered exponential backoff to spread retry sp
 - Acquisition becomes more polite and resilient.
 - Retry behavior becomes predictable and auditable.
 - Traffic policy must be external to parser and analytical logic.
+
+## DEC-010 - Use Browser Rendering for HTML Detail Evidence When Static HTML Is Incomplete
+
+Status: Accepted
+
+### Context
+
+Some HTML listing sources return incomplete detail evidence through plain HTTP.
+
+Observed examples include source pages where coordinates, amenity sections, expanded fields, or map-related evidence appear only after browser rendering or same-page expansion.
+
+### Decision
+
+Use a shared Playwright browser capture helper for listing-detail pages on HTML sources that need rendered DOM evidence.
+
+Current browser-detail sources:
+
+- `argenprop`
+- `mudafy`
+- `properati`
+- `zonaprop`
+
+Keep `cabaprop` and `remax` API-first because their JSON payloads are structured and already preserve stronger source evidence.
+
+The browser helper may click only bounded, safe, same-page reveal controls. It must reject contact, WhatsApp, phone, email, login, favorite, share, download, and navigation actions.
+
+### Grounding
+
+This preserves the Raw Ingestion boundary from DEC-003. Bronze still captures evidence and metadata only. It does not interpret listing semantics.
+
+The implementation also follows DEC-009 by routing browser fetches through the existing traffic controller.
+
+### Consequences
+
+- Bronze artifacts better match the evidence available to a browser user.
+- Silver parsers can recover fields that were absent from static HTML.
+- Browser capture is slower than HTTP, especially for Zonaprop detail pages.
+- `capture_metadata` is required so future replay and diagnostics can distinguish HTTP, browser render, and browser reveal captures.

@@ -10,7 +10,6 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from html.parser import HTMLParser
-from time import perf_counter
 from urllib.parse import urljoin, urlparse
 
 from loguru import logger
@@ -38,7 +37,6 @@ DEFAULT_POLITENESS = PolitenessProfile(
         max_delay_seconds=20.0,
     ),
 )
-
 
 class ZonapropSource(RealEstateWebSource):
     """Zonaprop raw acquisition source."""
@@ -82,95 +80,7 @@ class ZonapropSource(RealEstateWebSource):
 
     def fetch(self, request: IngestionRequest) -> IngestionResponse:
         """Fetch one raw payload using headless Playwright."""
-        self._ensure_allowed_uri(request.target.uri)
-
-        request_logger = logger.bind(
-            source_id=self.definition.source_id,
-            target_id=request.target.target_id,
-            target_kind=request.target.kind.value,
-        )
-        request_logger.info("Fetching target via Playwright uri={}", request.target.uri)
-        try:
-            response = self._traffic.request(
-                lambda: self._fetch_via_playwright(request),
-                log_context={
-                    "source_id": self.definition.source_id,
-                    "target_id": request.target.target_id,
-                    "target_kind": request.target.kind.value,
-                },
-            )
-        except Exception:
-            request_logger.exception("Playwright fetch failed uri={}", request.target.uri)
-            raise
-        return response
-
-    def _fetch_via_playwright(self, request: IngestionRequest) -> IngestionResponse:
-        from playwright.sync_api import sync_playwright
-
-        request_logger = logger.bind(
-            source_id=self.definition.source_id,
-            target_id=request.target.target_id,
-            target_kind=request.target.kind.value,
-        )
-        started_at = perf_counter()
-        with sync_playwright() as playwright:
-            request_logger.debug("Launching Chromium for Zonaprop fetch")
-            browser = playwright.chromium.launch(
-                headless=True,
-                args=("--disable-blink-features=AutomationControlled",),
-            )
-            context = browser.new_context(
-                user_agent=request.headers.get("user-agent", self.DEFAULT_HEADERS["user-agent"]),
-                locale="es-AR",
-            )
-            page = context.new_page()
-            
-            # Forward custom headers if present
-            extra_headers = {k: v for k, v in request.headers.items() if k.lower() != "user-agent"}
-            if extra_headers:
-                request_logger.debug(
-                    "Setting Playwright extra headers header_names={}",
-                    sorted(extra_headers),
-                )
-                page.set_extra_http_headers(extra_headers)
-
-            res = page.goto(
-                request.target.uri,
-                wait_until="domcontentloaded",
-                timeout=int(self._timeout_seconds * 1000),
-            )
-            
-            status_code = res.status if res else 500
-            final_uri = page.url
-            headers = res.all_headers() if res else {}
-            payload = page.content().encode("utf-8")
-            
-            browser.close()
-
-        media_type = headers.get("content-type")
-        if media_type is not None:
-            media_type = media_type.split(";", maxsplit=1)[0].strip().lower()
-        else:
-            media_type = "text/html"
-
-        log_method = request_logger.warning if status_code >= 400 else request_logger.info
-        log_method(
-            "Playwright fetch completed status_code={} media_type={} payload_bytes={} "
-            "final_uri={} elapsed_seconds={}",
-            status_code,
-            media_type,
-            len(payload),
-            final_uri,
-            round(perf_counter() - started_at, 3),
-        )
-        return IngestionResponse(
-            request=request,
-            status_code=status_code,
-            final_uri=final_uri,
-            media_type=media_type,
-            headers=headers,
-            payload=payload,
-        )
+        return self.fetch_with_browser_rendering(request)
 
     @classmethod
     def listing_target(cls, *, listing_id: str, kind: str, slug: str) -> IngestionTarget:

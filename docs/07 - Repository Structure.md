@@ -20,6 +20,7 @@ src/
   inmob/
     ingestion/
       sources/
+        browser.py
       raw_store/
       traffic/
       contracts/
@@ -67,6 +68,17 @@ var/
 `orchestration` is separated because pipeline sequencing, run state, diagnostics, retries, replay, and alerts belong to the control plane rather than to any one processing layer.
 
 `var` is local runtime storage and should not contain versioned data. It exists only to provide an obvious local home for raw, clean, quarantine, and enriched artifacts during development.
+
+Current local runtime outputs also use:
+
+```text
+data/raw/                         Bronze raw artifacts, ignored by default.
+data/silver/inmob.sqlite          Silver SQLite database, ignored by default.
+data/silver/listings_current.csv  Current listing export, ignored by default.
+logs/                             Bronze and Silver command logs, ignored by default.
+```
+
+These paths may be force-added only for intentional snapshot commits.
 
 ## Dependency Policy
 

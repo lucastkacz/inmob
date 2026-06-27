@@ -1,0 +1,20 @@
+{
+  "artifact_id": "fixture-properati",
+  "run_id": "fixture-run",
+  "source_id": "properati",
+  "target_id": "properati-1",
+  "target_kind": "listing",
+  "requested_uri": "https://www.properati.com.ar/departamento-fixture",
+  "final_uri": "https://www.properati.com.ar/departamento-fixture",
+  "captured_at": "2026-06-20T12:00:00Z",
+  "status_code": 200,
+  "media_type": "text/html",
+  "payload_sha256": "fixture",
+  "payload_size_bytes": 1,
+  "payload_path": "properati_fixture_raw_payload.html",
+  "metadata_path": "properati_fixture_raw_metadata.json",
+  "headers": {},
+  "target_metadata": {
+    "listing_id": "properati-1"
+  }
+}

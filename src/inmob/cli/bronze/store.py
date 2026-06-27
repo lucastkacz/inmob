@@ -82,6 +82,7 @@ class PropertyFolderRawArtifactStore:
             metadata_path=metadata_path,
             headers=response.headers,
             target_metadata=target.metadata,
+            capture_metadata=response.capture_metadata,
         )
 
         metadata_path.write_text(
