@@ -18,8 +18,6 @@ from inmob.bronze.contracts import (
     BronzeResponse,
     BronzeRunContext,
     BronzeTarget,
-    PolitenessProfile,
-    RetryProfile,
     SourceDefinition,
     TargetKind,
 )
@@ -32,16 +30,6 @@ from inmob.bronze.sources.zonaprop.search import (
 from inmob.bronze.traffic import TrafficController
 from inmob.bronze.traffic.controller import TrafficSnapshot
 
-
-DEFAULT_POLITENESS = PolitenessProfile(
-    requests_per_minute=20,
-    burst_size=2,
-    retry=RetryProfile(
-        max_attempts=3,
-        initial_delay_seconds=1.0,
-        max_delay_seconds=20.0,
-    ),
-)
 
 _LISTING_ID_PATTERN = re.compile(r"-(?P<id>\d+)\.html$", re.IGNORECASE)
 _EMBEDDED_PAYLOAD_METADATA_KEY = "embedded_payload"
@@ -74,7 +62,6 @@ class ZonapropSource:
             display_name="Zonaprop",
             homepage_url=ZONAPROP_HOME_URL,
             allowed_domains=("zonaprop.com.ar", "www.zonaprop.com.ar"),
-            politeness=DEFAULT_POLITENESS,
         )
         self._runtime = WebSourceRuntime(
             definition=definition,
@@ -196,19 +183,8 @@ class ZonapropSource:
     ) -> BronzeTarget:
         """Build a Bronze target for one Zonaprop postings API page."""
 
-        return cls.api_search_target(criteria=criteria, page=page)
-
-    @classmethod
-    def api_search_target(
-        cls,
-        *,
-        criteria: ZonapropSearchCriteria,
-        page: int,
-    ) -> BronzeTarget:
-        """Build a Bronze target for one Zonaprop postings API page."""
-
         return BronzeTarget(
-            target_id=f"zonaprop-api-search-{criteria.target_key()}-page-{page}",
+            target_id=f"zonaprop-search-{criteria.target_key()}-page-{page}",
             kind=TargetKind.API_ENDPOINT,
             uri=ZONAPROP_API_POSTINGS_URL,
             metadata={
@@ -231,17 +207,6 @@ class ZonapropSource:
         """Build API Bronze targets for multiple Zonaprop search pages."""
 
         return tuple(cls.search_target(criteria=criteria, page=page) for page in pages)
-
-    @classmethod
-    def api_search_targets(
-        cls,
-        *,
-        criteria: ZonapropSearchCriteria,
-        pages: Sequence[int],
-    ) -> tuple[BronzeTarget, ...]:
-        """Build API Bronze targets for multiple Zonaprop search pages."""
-
-        return tuple(cls.api_search_target(criteria=criteria, page=page) for page in pages)
 
     def discover_listing_targets(self, payload: bytes | str) -> tuple[BronzeTarget, ...]:
         """Discover listing-detail payloads from a Zonaprop postings API response."""

@@ -1,4 +1,4 @@
-"""Composable runtime for external real estate web sources."""
+"""Composable HTTP runtime for external real estate web sources."""
 
 from __future__ import annotations
 
@@ -16,10 +16,10 @@ from inmob.bronze.contracts import (
     BronzeResponse,
     BronzeRunContext,
     BronzeTarget,
+    PolitenessProfile,
     SourceDefinition,
 )
-from inmob.bronze.sources.browser import fetch_rendered_html
-from inmob.bronze.traffic import TrafficController
+from inmob.bronze.traffic import DEFAULT_TRAFFIC_PROFILE, TrafficController
 from inmob.bronze.traffic.controller import TrafficSnapshot
 
 
@@ -62,7 +62,7 @@ HeadersForTarget = Callable[[BronzeTarget], dict[str, str]]
 
 
 class WebSourceRuntime:
-    """Shared HTTP/browser runtime composed into concrete source adapters."""
+    """Shared HTTP runtime composed into concrete source adapters."""
 
     _traffic_controllers: ClassVar[dict[str, TrafficController]] = {}
     _clients: ClassVar[dict[str, httpx.Client]] = {}
@@ -76,6 +76,7 @@ class WebSourceRuntime:
         headers_for_target: HeadersForTarget | None = None,
         timeout_seconds: float = 30.0,
         traffic_controller: TrafficController | None = None,
+        traffic_profile: PolitenessProfile = DEFAULT_TRAFFIC_PROFILE,
     ) -> None:
         self.definition = definition
         self.targets = tuple(targets)
@@ -83,6 +84,7 @@ class WebSourceRuntime:
         self._headers_for_target = headers_for_target
         self._timeout_seconds = timeout_seconds
         self._traffic_controller = traffic_controller
+        self._traffic_profile = traffic_profile
 
     def headers_for_target(self, target: BronzeTarget) -> dict[str, str]:
         """Return HTTP headers for one target."""
@@ -189,39 +191,6 @@ class WebSourceRuntime:
             payload=response.content,
         )
 
-    def fetch_browser(self, request: BronzeRequest) -> BronzeResponse:
-        """Fetch one raw payload through Playwright when HTML needs browser state."""
-
-        self._validate_request(request)
-
-        source_id = self.definition.source_id
-        request_logger = logger.bind(
-            source_id=source_id,
-            target_id=request.target.target_id,
-            target_kind=request.target.kind.value,
-        )
-        try:
-            response = self._traffic.request(
-                lambda: fetch_rendered_html(
-                    request=request,
-                    source_id=source_id,
-                    default_user_agent=self.default_headers.get("user-agent", ""),
-                    timeout_seconds=self._timeout_seconds,
-                    request_logger=request_logger,
-                ),
-                log_context={
-                    "source_id": source_id,
-                    "target_id": request.target.target_id,
-                    "target_kind": request.target.kind.value,
-                },
-            )
-        except Exception:
-            request_logger.exception("Playwright fetch failed uri={}", request.target.uri)
-            raise
-
-        self.ensure_allowed_uri(response.final_uri)
-        return response
-
     def close(self) -> None:
         """Close the underlying HTTP client session."""
 
@@ -273,7 +242,7 @@ class WebSourceRuntime:
             source_id = self.definition.source_id
             if source_id not in self._traffic_controllers:
                 self._traffic_controllers[source_id] = TrafficController(
-                    profile=self.definition.politeness
+                    profile=self._traffic_profile
                 )
             return self._traffic_controllers[source_id]
 

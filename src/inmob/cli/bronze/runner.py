@@ -17,7 +17,7 @@ from loguru import logger
 from inmob.cli.bronze.config import DEFAULT_PROPERTY_LIMIT, DEFAULT_SOURCES_CONFIG
 from inmob.cli.bronze.store import PropertyFolderRawArtifactStore
 from inmob.bronze.contracts import BronzeRunContext, BronzeTarget, PolitenessProfile
-from inmob.bronze.traffic import TrafficSnapshot
+from inmob.bronze.traffic import DEFAULT_TRAFFIC_PROFILE, TrafficController, TrafficSnapshot
 
 
 class BronzeError(ValueError):
@@ -152,6 +152,7 @@ class BronzeRunner:
 
         discovered_by_uri = self._discover_listing_targets(
             source_class=source_class,
+            source_cfg=source_cfg,
             search_targets=search_targets,
             context=context,
             source_logger=source_logger,
@@ -174,6 +175,7 @@ class BronzeRunner:
 
         success_count = self._fetch_and_store_listing_details(
             source_class=source_class,
+            source_cfg=source_cfg,
             listing_targets=listing_targets,
             context=context,
             source_logger=source_logger,
@@ -191,14 +193,19 @@ class BronzeRunner:
         self,
         *,
         source_class: Any,
+        source_cfg: dict[str, Any],
         search_targets: tuple[BronzeTarget, ...],
         context: BronzeRunContext,
         source_logger: Any,
     ) -> dict[str, BronzeTarget]:
         discovered_by_uri: dict[str, BronzeTarget] = {}
-        with source_class(targets=search_targets) as search_source:
+        traffic_profile = _traffic_profile_from_config(source_cfg)
+        _log_traffic_policy(source_logger, traffic_profile)
+        with source_class(
+            targets=search_targets,
+            traffic_controller=TrafficController(profile=traffic_profile),
+        ) as search_source:
             search_source.reset_traffic_stats()
-            _log_traffic_policy(source_logger, search_source.definition.politeness)
             for request in search_source.plan_requests(context):
                 request_logger = source_logger.bind(
                     target_id=request.target.target_id,
@@ -242,6 +249,7 @@ class BronzeRunner:
         self,
         *,
         source_class: Any,
+        source_cfg: dict[str, Any],
         listing_targets: tuple[BronzeTarget, ...],
         context: BronzeRunContext,
         source_logger: Any,
@@ -250,7 +258,11 @@ class BronzeRunner:
         store = PropertyFolderRawArtifactStore(target_dir)
         success_count = 0
 
-        with source_class(targets=listing_targets) as listing_source:
+        traffic_profile = _traffic_profile_from_config(source_cfg)
+        with source_class(
+            targets=listing_targets,
+            traffic_controller=TrafficController(profile=traffic_profile),
+        ) as listing_source:
             listing_source.reset_traffic_stats()
             for idx, request in enumerate(listing_source.plan_requests(context), start=1):
                 request_logger = source_logger.bind(
@@ -359,6 +371,13 @@ class BronzeRunner:
         else:
             pages_needed = pages if pages is not None else 1
         return list(range(page_index_starts_at, page_index_starts_at + pages_needed))
+
+
+def _traffic_profile_from_config(source_cfg: dict[str, Any]) -> PolitenessProfile:
+    profile = source_cfg.get("traffic_profile", DEFAULT_TRAFFIC_PROFILE)
+    if not isinstance(profile, PolitenessProfile):
+        raise BronzeError("source traffic_profile must be a PolitenessProfile")
+    return profile
 
 
 def _log_traffic_policy(source_logger: Any, profile: PolitenessProfile) -> None:

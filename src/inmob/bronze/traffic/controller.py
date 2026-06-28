@@ -17,6 +17,15 @@ from inmob.bronze.contracts import PolitenessProfile, RetryProfile
 
 
 RETRYABLE_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504})
+DEFAULT_TRAFFIC_PROFILE = PolitenessProfile(
+    requests_per_minute=20,
+    burst_size=2,
+    retry=RetryProfile(
+        max_attempts=3,
+        initial_delay_seconds=1.0,
+        max_delay_seconds=30.0,
+    ),
+)
 
 
 class StatusResponse(Protocol):

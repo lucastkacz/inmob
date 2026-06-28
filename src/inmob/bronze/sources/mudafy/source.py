@@ -19,8 +19,6 @@ from inmob.bronze.contracts import (
     BronzeResponse,
     BronzeRunContext,
     BronzeTarget,
-    PolitenessProfile,
-    RetryProfile,
     SourceDefinition,
     TargetKind,
 )
@@ -29,16 +27,6 @@ from inmob.bronze.sources.mudafy.search import MUDAFY_HOME_URL, MudafySearchCrit
 from inmob.bronze.traffic import TrafficController
 from inmob.bronze.traffic.controller import TrafficSnapshot
 
-
-DEFAULT_POLITENESS = PolitenessProfile(
-    requests_per_minute=20,
-    burst_size=2,
-    retry=RetryProfile(
-        max_attempts=3,
-        initial_delay_seconds=1.0,
-        max_delay_seconds=20.0,
-    ),
-)
 
 _LISTING_PATH_PATTERN = re.compile(
     r"(?:https?://(?:www\.)?mudafy\.com\.ar)?"
@@ -89,7 +77,6 @@ class MudafySource:
             display_name="Mudafy",
             homepage_url=MUDAFY_HOME_URL,
             allowed_domains=("mudafy.com.ar", "www.mudafy.com.ar"),
-            politeness=DEFAULT_POLITENESS,
         )
         self._runtime = WebSourceRuntime(
             definition=definition,
@@ -116,9 +103,7 @@ class MudafySource:
         return self._runtime.build_request(target)
 
     def fetch(self, request: BronzeRequest) -> BronzeResponse:
-        """Fetch listing details with browser rendering; keep search pages as HTTP."""
-        if request.target.kind == TargetKind.LISTING_DETAIL:
-            return self._runtime.fetch_browser(request)
+        """Fetch raw Mudafy pages through regular HTTP."""
         return self._runtime.fetch_http(request)
 
     def close(self) -> None:

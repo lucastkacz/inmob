@@ -19,8 +19,6 @@ from inmob.bronze.contracts import (
     BronzeResponse,
     BronzeRunContext,
     BronzeTarget,
-    PolitenessProfile,
-    RetryProfile,
     SourceDefinition,
     TargetKind,
 )
@@ -32,16 +30,6 @@ from inmob.bronze.sources.base import WebSourceRuntime
 from inmob.bronze.traffic import TrafficController
 from inmob.bronze.traffic.controller import TrafficSnapshot
 
-
-DEFAULT_POLITENESS = PolitenessProfile(
-    requests_per_minute=20,
-    burst_size=2,
-    retry=RetryProfile(
-        max_attempts=3,
-        initial_delay_seconds=1.0,
-        max_delay_seconds=20.0,
-    ),
-)
 
 _LISTING_PATH_PATTERN = re.compile(
     r"(?:https?://(?:www\.)?argenprop\.com)?"
@@ -74,7 +62,6 @@ class ArgenpropSource:
             display_name="Argenprop",
             homepage_url=ARGENPROP_HOME_URL,
             allowed_domains=("argenprop.com", "www.argenprop.com"),
-            politeness=DEFAULT_POLITENESS,
         )
         self._runtime = WebSourceRuntime(
             definition=definition,
@@ -101,9 +88,11 @@ class ArgenpropSource:
         return self._runtime.build_request(target)
 
     def fetch(self, request: BronzeRequest) -> BronzeResponse:
-        """Fetch listing details with browser rendering; keep search pages as HTTP."""
-        if request.target.kind == TargetKind.LISTING_DETAIL:
-            return self._runtime.fetch_browser(request)
+        """Fetch Argenprop pages through regular HTTP.
+
+        Argenprop serves search and detail evidence in the initial HTML response,
+        so browser rendering is unnecessary for Bronze capture.
+        """
         return self._runtime.fetch_http(request)
 
     def close(self) -> None:

@@ -14,7 +14,6 @@ dependencies = [
     "loguru>=0.7.3,<0.8.0",
     "typer>=0.20.0,<0.21.0",
     "python-dotenv>=1.2.1,<2.0.0",
-    "playwright (>=1.60.0,<2.0.0)",
     "curl-cffi (>=0.15.0,<0.16.0)",
 ]
 

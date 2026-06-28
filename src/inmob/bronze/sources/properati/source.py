@@ -19,8 +19,6 @@ from inmob.bronze.contracts import (
     BronzeResponse,
     BronzeRunContext,
     BronzeTarget,
-    PolitenessProfile,
-    RetryProfile,
     SourceDefinition,
     TargetKind,
 )
@@ -28,17 +26,6 @@ from inmob.bronze.sources.base import WebSourceRuntime
 from inmob.bronze.sources.properati.search import PROPERATI_HOME_URL, ProperatiSearchCriteria
 from inmob.bronze.traffic import TrafficController
 from inmob.bronze.traffic.controller import TrafficSnapshot
-
-
-DEFAULT_POLITENESS = PolitenessProfile(
-    requests_per_minute=20,
-    burst_size=2,
-    retry=RetryProfile(
-        max_attempts=3,
-        initial_delay_seconds=1.0,
-        max_delay_seconds=20.0,
-    ),
-)
 
 
 class ProperatiSource:
@@ -65,7 +52,6 @@ class ProperatiSource:
             display_name="Properati",
             homepage_url=PROPERATI_HOME_URL,
             allowed_domains=("properati.com.ar", "www.properati.com.ar"),
-            politeness=DEFAULT_POLITENESS,
         )
         self._runtime = WebSourceRuntime(
             definition=definition,
@@ -92,9 +78,7 @@ class ProperatiSource:
         return self._runtime.build_request(target)
 
     def fetch(self, request: BronzeRequest) -> BronzeResponse:
-        """Fetch listing details with browser rendering; keep search pages as HTTP."""
-        if request.target.kind == TargetKind.LISTING_DETAIL:
-            return self._runtime.fetch_browser(request)
+        """Fetch raw Properati pages through regular HTTP."""
         return self._runtime.fetch_http(request)
 
     def close(self) -> None:

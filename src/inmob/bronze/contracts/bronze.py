@@ -63,7 +63,6 @@ class SourceDefinition(BaseModel):
     display_name: str = Field(min_length=1)
     homepage_url: str = Field(min_length=1)
     allowed_domains: tuple[str, ...] = Field(min_length=1)
-    politeness: PolitenessProfile
     notes: str | None = None
 
     @field_validator("homepage_url")

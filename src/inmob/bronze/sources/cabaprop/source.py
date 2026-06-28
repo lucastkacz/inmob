@@ -9,10 +9,8 @@ from __future__ import annotations
 
 import json
 import re
-import unicodedata
 from collections.abc import Iterable, Sequence
-from html.parser import HTMLParser
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 
 from loguru import logger
 
@@ -22,8 +20,6 @@ from inmob.bronze.contracts import (
     BronzeResponse,
     BronzeRunContext,
     BronzeTarget,
-    PolitenessProfile,
-    RetryProfile,
     SourceDefinition,
     TargetKind,
 )
@@ -38,22 +34,10 @@ from inmob.bronze.traffic import TrafficController
 from inmob.bronze.traffic.controller import TrafficSnapshot
 
 
-DEFAULT_POLITENESS = PolitenessProfile(
-    requests_per_minute=20,
-    burst_size=2,
-    retry=RetryProfile(
-        max_attempts=3,
-        initial_delay_seconds=1.0,
-        max_delay_seconds=20.0,
-    ),
-)
-
 _LISTING_PATH_PATTERN = re.compile(
-    r"(?:https?://(?:www\.)?cabaprop\.com\.ar)?"
-    r"(?P<path>/propiedad/(?P<id>[a-f0-9]{24})/[^\"'<>\\\s?]+)",
+    r"^/propiedad/(?P<id>[a-f0-9]{24})(?:/[^/?#]+)?/?$",
     re.IGNORECASE,
 )
-_SLUG_CHARACTER_PATTERN = re.compile(r"[^A-Za-z0-9]+")
 
 
 class CabapropSource:
@@ -80,7 +64,6 @@ class CabapropSource:
             display_name="CabaProp",
             homepage_url=CABAPROP_HOME_URL,
             allowed_domains=("cabaprop.com.ar", "www.cabaprop.com.ar"),
-            politeness=DEFAULT_POLITENESS,
         )
         self._runtime = WebSourceRuntime(
             definition=definition,
@@ -148,39 +131,24 @@ class CabapropSource:
         self._runtime.reset_traffic_stats()
 
     @classmethod
-    def listing_target(cls, *, listing_id: str, title: str | None = None) -> BronzeTarget:
+    def listing_target(cls, *, listing_id: str) -> BronzeTarget:
         """Build a Bronze target for a CabaProp listing detail API payload."""
 
-        metadata = {
-            "listing_id": listing_id,
-            "api_payload": "listing_detail",
-        }
-        if title:
-            slug = _slugify_title(title)
-            metadata["slug"] = slug
-            metadata["public_url"] = _path_to_url(f"/propiedad/{listing_id}/{slug}")
-
-         # target_id matches cabaprop-listing-{id} to preserve original convention
         return BronzeTarget(
             target_id=f"cabaprop-listing-{listing_id}",
             kind=TargetKind.API_ENDPOINT,
             uri=CABAPROP_API_PROPERTY_URL_TEMPLATE.format(listing_id=listing_id),
-            metadata=metadata,
+            metadata={
+                "listing_id": listing_id,
+                "api_payload": "listing_detail",
+            },
         )
 
-    # Alias for backward compatibility
-    api_listing_target = listing_target
-
     def listing_target_from_url(self, url: str) -> BronzeTarget:
-        """Build a listing target from a normalized CabaProp listing URL."""
+        """Build an API listing target from a public CabaProp listing URL."""
 
-        normalized = _normalize_listing_url(url)
-        if normalized is None:
-            raise ValueError(f"URL is not a CabaProp listing detail URL: {url}")
-        parsed = urlparse(normalized)
-        parts = parsed.path.strip("/").split("/")
-        title = parts[2] if len(parts) > 2 else None
-        return self.listing_target(listing_id=parts[1], title=title)
+        listing_id = _listing_id_from_url(url)
+        return self.listing_target(listing_id=listing_id)
 
     @classmethod
     def search_target(
@@ -189,30 +157,10 @@ class CabapropSource:
         criteria: CabapropSearchCriteria,
         page: int,
     ) -> BronzeTarget:
-        """Build a Bronze target for one public CabaProp search page."""
-
-        return BronzeTarget(
-            target_id=f"cabaprop-search-{criteria.target_key()}-page-{page}",
-            kind=TargetKind.SEARCH_RESULTS,
-            uri=criteria.build_url(page=page),
-            metadata={
-                "page": str(page),
-                "page_size": str(criteria.page_size),
-                "criteria_label": criteria.label or "",
-            },
-        )
-
-    @classmethod
-    def api_search_target(
-        cls,
-        *,
-        criteria: CabapropSearchCriteria,
-        page: int,
-    ) -> BronzeTarget:
         """Build a Bronze target for one CabaProp API search page."""
 
         return BronzeTarget(
-            target_id=f"cabaprop-api-search-{criteria.target_key()}-page-{page}",
+            target_id=f"cabaprop-search-{criteria.target_key()}-page-{page}",
             kind=TargetKind.API_ENDPOINT,
             uri=criteria.build_api_url(page=page),
             metadata={
@@ -220,7 +168,6 @@ class CabapropSource:
                 "page_size": str(criteria.page_size),
                 "criteria_label": criteria.label or "",
                 "api_url": CABAPROP_API_SEARCH_URL,
-                "public_url": criteria.build_url(page=page),
                 "request_body": criteria.build_api_body().decode("utf-8"),
             },
         )
@@ -232,20 +179,9 @@ class CabapropSource:
         criteria: CabapropSearchCriteria,
         pages: Sequence[int],
     ) -> tuple[BronzeTarget, ...]:
-        """Build public Bronze targets for multiple CabaProp search pages."""
-
-        return tuple(cls.search_target(criteria=criteria, page=page) for page in pages)
-
-    @classmethod
-    def api_search_targets(
-        cls,
-        *,
-        criteria: CabapropSearchCriteria,
-        pages: Sequence[int],
-    ) -> tuple[BronzeTarget, ...]:
         """Build API Bronze targets for multiple CabaProp search pages."""
 
-        return tuple(cls.api_search_target(criteria=criteria, page=page) for page in pages)
+        return tuple(cls.search_target(criteria=criteria, page=page) for page in pages)
 
     def discover_listing_targets(self, payload: bytes | str) -> tuple[BronzeTarget, ...]:
         """Discover listing-detail targets from raw CabaProp search payloads."""
@@ -282,7 +218,6 @@ class CabapropSource:
                 skipped_items += 1
                 continue
             listing_id = item.get("_id")
-            title = item.get("title")
             if not isinstance(listing_id, str) or not listing_id:
                 skipped_items += 1
                 continue
@@ -290,7 +225,7 @@ class CabapropSource:
                 duplicate_items += 1
                 continue
             seen.add(listing_id)
-            discovered.append(self.listing_target(listing_id=listing_id, title=title))
+            discovered.append(self.listing_target(listing_id=listing_id))
 
         discovery_logger.info(
             "CabaProp API discovery completed result_items={} discovered={} skipped={} duplicates={}",
@@ -301,45 +236,13 @@ class CabapropSource:
         )
         return tuple(discovered)
 
-    # Alias for backward compatibility
-    discover_api_listing_targets = discover_listing_targets
 
-
-class _CabapropListingLinkParser(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__()
-        self.hrefs: list[str] = []
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag.lower() != "a":
-            return
-
-        for key, value in attrs:
-            if key.lower() == "href" and value:
-                self.hrefs.append(value)
-
-
-def _path_to_url(path: str) -> str:
-    return urljoin(CABAPROP_HOME_URL, path)
-
-
-def _normalize_listing_url(candidate: str) -> str | None:
-    absolute = urljoin(CABAPROP_HOME_URL, candidate)
-    parsed = urlparse(absolute)
+def _listing_id_from_url(url: str) -> str:
+    parsed = urlparse(url)
     hostname = parsed.hostname.lower() if parsed.hostname else ""
     if hostname not in {"cabaprop.com.ar", "www.cabaprop.com.ar"}:
-        return None
-
-    path = parsed.path.rstrip("/")
-    match = _LISTING_PATH_PATTERN.fullmatch(path)
+        raise ValueError(f"URL is not a CabaProp listing detail URL: {url}")
+    match = _LISTING_PATH_PATTERN.fullmatch(parsed.path)
     if match is None:
-        return None
-
-    return f"https://cabaprop.com.ar{path}"
-
-
-def _slugify_title(title: str) -> str:
-    normalized = unicodedata.normalize("NFKD", title)
-    ascii_title = normalized.encode("ascii", errors="ignore").decode("ascii")
-    slug = _SLUG_CHARACTER_PATTERN.sub("-", ascii_title).strip("-")
-    return slug or "propiedad"
+        raise ValueError(f"URL is not a CabaProp listing detail URL: {url}")
+    return match.group("id")

@@ -42,7 +42,7 @@ DEFAULT_SOURCES_CONFIG: dict[str, dict[str, Any]] = {
         "source_class": CabapropSource,
         "criteria_class": CabapropSearchCriteria,
         "page_index_starts_at": 1,
-        "search_targets_method": "api_search_targets",
+        "search_targets_method": "search_targets",
         "default_criteria": {
             "operation": "comprar",
             "barrios": (),
@@ -83,15 +83,13 @@ DEFAULT_SOURCES_CONFIG: dict[str, dict[str, Any]] = {
         "source_class": RemaxSource,
         "criteria_class": RemaxSearchCriteria,
         "page_index_starts_at": 0,
-        "search_targets_method": "api_search_targets",
+        "search_targets_method": "search_targets",
         "default_criteria": {
             "page_size": 24,
             "operation_ids": (1,),
             "sort": "-createdAt",
             "filters": (("locations", "in:CF@<b>Capital</b> <b>F</b>ederal::::::"),),
             "landing_path": "comprar-propiedades",
-            "filter_count": 0,
-            "view_mode": "listViewMode",
             "label": "remax-caba-newest",
         },
     },
@@ -99,7 +97,7 @@ DEFAULT_SOURCES_CONFIG: dict[str, dict[str, Any]] = {
         "source_class": ZonapropSource,
         "criteria_class": ZonapropSearchCriteria,
         "page_index_starts_at": 1,
-        "search_targets_method": "api_search_targets",
+        "search_targets_method": "search_targets",
         "default_criteria": {
             "filters": {
                 "tipoDeOperacion": "1",
