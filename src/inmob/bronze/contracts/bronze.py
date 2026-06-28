@@ -28,7 +28,6 @@ class TargetKind(StrEnum):
 
     SEARCH_RESULTS = "search_results"
     LISTING_DETAIL = "listing_detail"
-    API_ENDPOINT = "api_endpoint"
     FEED = "feed"
     OTHER = "other"
 
@@ -148,6 +147,8 @@ class RawArtifact(BaseModel):
 
     artifact_type: Literal["raw_artifact"] = "raw_artifact"
     artifact_id: str = Field(min_length=1)
+    artifact_origin: Literal["fetched", "derived"] = "fetched"
+    parent_artifact_id: str | None = None
     run_id: str = Field(min_length=1)
     source_id: str = Field(min_length=1)
     target_id: str = Field(min_length=1)

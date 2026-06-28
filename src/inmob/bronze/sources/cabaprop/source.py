@@ -88,7 +88,7 @@ class CabapropSource:
             yield self.build_request(target)
 
     def headers_for_target(self, target: BronzeTarget) -> dict[str, str]:
-        if target.kind == TargetKind.API_ENDPOINT:
+        if target.metadata.get("api_url") or target.metadata.get("request_body"):
             return {
                 **self.DEFAULT_HEADERS,
                 "accept": "application/json, text/plain, */*",
@@ -98,9 +98,6 @@ class CabapropSource:
 
     def build_request(self, target: BronzeTarget) -> BronzeRequest:
         request = self._runtime.build_request(target)
-        if target.kind != TargetKind.API_ENDPOINT:
-            return request
-
         body = target.metadata.get("request_body")
         if body is None:
             return request
@@ -136,11 +133,12 @@ class CabapropSource:
 
         return BronzeTarget(
             target_id=f"cabaprop-listing-{listing_id}",
-            kind=TargetKind.API_ENDPOINT,
+            kind=TargetKind.LISTING_DETAIL,
             uri=CABAPROP_API_PROPERTY_URL_TEMPLATE.format(listing_id=listing_id),
             metadata={
                 "listing_id": listing_id,
                 "api_payload": "listing_detail",
+                "api_url": CABAPROP_API_PROPERTY_URL_TEMPLATE,
             },
         )
 
@@ -161,7 +159,7 @@ class CabapropSource:
 
         return BronzeTarget(
             target_id=f"cabaprop-search-{criteria.target_key()}-page-{page}",
-            kind=TargetKind.API_ENDPOINT,
+            kind=TargetKind.SEARCH_RESULTS,
             uri=criteria.build_api_url(page=page),
             metadata={
                 "page": str(page),

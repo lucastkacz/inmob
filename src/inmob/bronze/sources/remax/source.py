@@ -156,7 +156,7 @@ class RemaxSource:
         )
         return BronzeTarget(
             target_id=f"remax-search-{criteria.target_key()}-page-{page}",
-            kind=TargetKind.API_ENDPOINT,
+            kind=TargetKind.SEARCH_RESULTS,
             uri=criteria.build_api_url(page=page),
             metadata={
                 "operation_ids": operation_ids,

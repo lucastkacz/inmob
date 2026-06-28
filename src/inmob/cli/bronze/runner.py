@@ -14,14 +14,80 @@ from uuid import uuid4
 
 from loguru import logger
 
-from inmob.cli.bronze.config import DEFAULT_PROPERTY_LIMIT, DEFAULT_SOURCES_CONFIG
-from inmob.cli.bronze.store import BronzeArtifactStore
-from inmob.bronze.contracts import BronzeRunContext, BronzeTarget, PolitenessProfile
+from inmob.bronze.artifacts import BronzeArtifactStore
+from inmob.bronze.contracts import BronzeRunContext, BronzeTarget, PolitenessProfile, RawArtifact
 from inmob.bronze.traffic import DEFAULT_TRAFFIC_PROFILE, TrafficController, TrafficSnapshot
+from inmob.cli.bronze.config import DEFAULT_PROPERTY_LIMIT, DEFAULT_SOURCES_CONFIG
 
 
 class BronzeError(ValueError):
     """Raised when a Bronze request is invalid."""
+
+
+@dataclass
+class _SourceRunSummary:
+    source_id: str
+    run_id: str
+    started_at: datetime
+    status: str = "running"
+    finished_at: datetime | None = None
+    search_targets_planned: int = 0
+    search_artifacts_persisted: int = 0
+    listing_targets_discovered: int = 0
+    listing_targets_selected: int = 0
+    listing_artifacts_persisted: int = 0
+    listing_details_succeeded: int = 0
+    search_failures: int = 0
+    listing_failures: int = 0
+    errors: list[str] = field(default_factory=list)
+    event_log_path: str | None = None
+
+    def finish(self, *, status: str) -> None:
+        self.status = status
+        self.finished_at = datetime.now(UTC)
+
+    def to_json_ready_dict(self) -> dict[str, Any]:
+        return {
+            "source_id": self.source_id,
+            "run_id": self.run_id,
+            "status": self.status,
+            "started_at": self.started_at.isoformat(),
+            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
+            "search_targets_planned": self.search_targets_planned,
+            "search_artifacts_persisted": self.search_artifacts_persisted,
+            "listing_targets_discovered": self.listing_targets_discovered,
+            "listing_targets_selected": self.listing_targets_selected,
+            "listing_artifacts_persisted": self.listing_artifacts_persisted,
+            "listing_details_succeeded": self.listing_details_succeeded,
+            "search_failures": self.search_failures,
+            "listing_failures": self.listing_failures,
+            "errors": self.errors,
+            "event_log_path": self.event_log_path,
+        }
+
+
+class _SourceEventLog:
+    def __init__(self, *, path: Path, run_id: str, source_id: str) -> None:
+        self._path = path
+        self._run_id = run_id
+        self._source_id = source_id
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def path(self) -> Path:
+        return self._path
+
+    def write(self, event: str, **fields: Any) -> None:
+        payload = {
+            "event": event,
+            "run_id": self._run_id,
+            "source_id": self._source_id,
+            "created_at": datetime.now(UTC).isoformat(),
+            **fields,
+        }
+        with self._path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str))
+            f.write("\n")
 
 
 @dataclass(frozen=True)
@@ -45,21 +111,28 @@ class BronzeRunner:
         normalized_pages = None if effective_limit is not None else pages
         overrides = self._load_overrides(config_path)
         sources_to_scrape = self._select_sources(source)
+        requested_at = datetime.now(UTC)
+        run_id = f"cli-run-{requested_at.strftime('%Y%m%dT%H%M%SZ')}-{uuid4().hex[:8]}"
+        context = BronzeRunContext(run_id=run_id, requested_at=requested_at)
+        run_started_at = perf_counter()
 
         target_dir.mkdir(parents=True, exist_ok=True)
+        store = BronzeArtifactStore(target_dir)
 
         logger.info(
-            "Starting Bronze target_dir={} source_count={} sources={}",
+            "Starting Bronze run_id={} target_dir={} source_count={} sources={}",
+            context.run_id,
             str(target_dir.resolve()),
             len(sources_to_scrape),
             sorted(sources_to_scrape),
         )
         if effective_limit is not None:
-            logger.info("Limits up to {} properties per source", effective_limit)
+            logger.info("Limits up to {} listing targets per source", effective_limit)
         else:
             logger.info("Limits up to {} index pages per source", normalized_pages)
 
         results: dict[str, int] = {}
+        summaries: dict[str, _SourceRunSummary] = {}
         with ThreadPoolExecutor(max_workers=len(sources_to_scrape)) as executor:
             future_to_source = {
                 executor.submit(
@@ -69,6 +142,7 @@ class BronzeRunner:
                     limit=effective_limit,
                     pages=normalized_pages,
                     target_dir=target_dir,
+                    context=context,
                     custom_criteria_args=overrides.get(source_id),
                 ): source_id
                 for source_id, cfg in sources_to_scrape.items()
@@ -77,20 +151,43 @@ class BronzeRunner:
             for future in as_completed(future_to_source):
                 source_id = future_to_source[future]
                 try:
-                    results[source_id] = future.result()
+                    summary = future.result()
+                    summaries[source_id] = summary
+                    results[source_id] = summary.listing_details_succeeded
                 except Exception as exc:
                     logger.bind(source_id=source_id).exception(
                         "Worker crashed with exception={}",
                         exc,
                     )
+                    summary = _SourceRunSummary(
+                        source_id=source_id,
+                        run_id=context.run_id,
+                        started_at=context.requested_at,
+                    )
+                    summary.errors.append(f"{type(exc).__name__}: {exc}")
+                    summary.finish(status="failed")
+                    summaries[source_id] = summary
                     results[source_id] = 0
 
+        manifest_path = _write_run_manifest(
+            target_dir=target_dir,
+            context=context,
+            summaries=summaries,
+            selected_source=source,
+            limit=limit,
+            pages=pages,
+            effective_limit=effective_limit,
+            elapsed_seconds=perf_counter() - run_started_at,
+            config_path=config_path,
+            store=store,
+        )
         logger.info("Bronze job summary start")
         for source_id, success_count in sorted(results.items()):
             logger.bind(source_id=source_id).info(
                 "Bronze source summary success_count={}",
                 success_count,
             )
+        logger.info("Bronze run manifest written path={}", str(manifest_path))
         return results
 
     def scrape_source(
@@ -101,13 +198,27 @@ class BronzeRunner:
         limit: int | None,
         pages: int | None,
         target_dir: Path,
+        context: BronzeRunContext,
         custom_criteria_args: dict[str, Any] | None = None,
-    ) -> int:
-        """Scrape a single source and return successfully stored listing count."""
+    ) -> _SourceRunSummary:
+        """Scrape a single source and return its run summary."""
         task_started_at = perf_counter()
-        source_logger = logger.bind(source_id=source_id)
+        source_logger = logger.bind(source_id=source_id, run_id=context.run_id)
+        store = BronzeArtifactStore(target_dir)
+        event_log = _SourceEventLog(
+            path=store.run_dir(context.run_id) / source_id / "events.jsonl",
+            run_id=context.run_id,
+            source_id=source_id,
+        )
+        summary = _SourceRunSummary(
+            source_id=source_id,
+            run_id=context.run_id,
+            started_at=datetime.now(UTC),
+            event_log_path=str(event_log.path),
+        )
         target_desc = f"limit: {limit}" if limit is not None else f"pages: {pages}"
         source_logger.info("Starting scraper task {}", target_desc)
+        event_log.write("bronze.source.started", target_desc=target_desc)
 
         source_class = source_cfg["source_class"]
         criteria_class = source_cfg["criteria_class"]
@@ -133,9 +244,6 @@ class BronzeRunner:
         )
         source_logger.info("Target page range={} page_size={}", pages_range, criteria.page_size)
 
-        run_id = f"cli-run-{source_id}-{uuid4().hex[:8]}"
-        context = BronzeRunContext(run_id=run_id, requested_at=datetime.now(UTC))
-        source_logger = source_logger.bind(run_id=run_id)
         source_logger.info(
             "Created Bronze run requested_at={} target_dir={}",
             context.requested_at.isoformat(),
@@ -149,6 +257,12 @@ class BronzeRunner:
             len(search_targets),
             search_targets_method,
         )
+        summary.search_targets_planned = len(search_targets)
+        event_log.write(
+            "bronze.search.planned",
+            target_count=len(search_targets),
+            builder=search_targets_method,
+        )
 
         discovered_by_uri = self._discover_listing_targets(
             source_class=source_class,
@@ -156,38 +270,67 @@ class BronzeRunner:
             search_targets=search_targets,
             context=context,
             source_logger=source_logger,
+            store=store,
+            summary=summary,
+            event_log=event_log,
         )
 
         if limit is not None:
             listing_targets = tuple(discovered_by_uri.values())[:limit]
         else:
             listing_targets = tuple(discovered_by_uri.values())
+        summary.listing_targets_discovered = len(discovered_by_uri)
+        summary.listing_targets_selected = len(listing_targets)
 
         source_logger.info(
             "Unique listings discovered total={} selected_for_detail_fetch={}",
             len(discovered_by_uri),
             len(listing_targets),
         )
+        event_log.write(
+            "bronze.listing_targets.selected",
+            discovered=len(discovered_by_uri),
+            selected=len(listing_targets),
+        )
 
         if not listing_targets:
             source_logger.warning("Scraper finished with no listing detail URIs discovered")
-            return 0
+            summary.finish(status="completed_with_warnings")
+            event_log.write("bronze.source.finished", status=summary.status)
+            return summary
 
-        success_count = self._fetch_and_store_listing_details(
+        self._fetch_and_store_listing_details(
             source_class=source_class,
             source_cfg=source_cfg,
             listing_targets=listing_targets,
             context=context,
             source_logger=source_logger,
-            target_dir=target_dir,
+            store=store,
+            summary=summary,
+            event_log=event_log,
         )
+        status = (
+            "completed"
+            if summary.search_failures == 0 and summary.listing_failures == 0
+            else "completed_with_warnings"
+        )
+        summary.finish(status=status)
         source_logger.info(
             "Scraper task finished success_count={} selected_count={} elapsed_seconds={}",
-            success_count,
+            summary.listing_details_succeeded,
             len(listing_targets),
             round(perf_counter() - task_started_at, 3),
         )
-        return success_count
+        event_log.write(
+            "bronze.source.finished",
+            status=summary.status,
+            listing_artifacts_persisted=summary.listing_artifacts_persisted,
+            listing_details_succeeded=summary.listing_details_succeeded,
+            search_failures=summary.search_failures,
+            listing_failures=summary.listing_failures,
+            elapsed_seconds=round(perf_counter() - task_started_at, 3),
+        )
+        return summary
 
     def _discover_listing_targets(
         self,
@@ -197,6 +340,9 @@ class BronzeRunner:
         search_targets: tuple[BronzeTarget, ...],
         context: BronzeRunContext,
         source_logger: Any,
+        store: BronzeArtifactStore,
+        summary: _SourceRunSummary,
+        event_log: _SourceEventLog,
     ) -> dict[str, BronzeTarget]:
         discovered_by_uri: dict[str, BronzeTarget] = {}
         traffic_profile = _traffic_profile_from_config(source_cfg)
@@ -214,12 +360,32 @@ class BronzeRunner:
                 try:
                     page_started_at = perf_counter()
                     request_logger.info("Fetching search page uri={}", request.target.uri)
+                    event_log.write(
+                        "bronze.search.fetch_started",
+                        target_id=request.target.target_id,
+                        target_kind=request.target.kind.value,
+                        uri=request.target.uri,
+                    )
                     response = search_source.fetch(request)
+                    artifact = store.persist(context=context, response=response)
+                    summary.search_artifacts_persisted += 1
+                    event_log.write(
+                        "bronze.search.artifact_persisted",
+                        **_artifact_event_fields(artifact),
+                        elapsed_seconds=round(perf_counter() - page_started_at, 3),
+                    )
                     if response.status_code not in (200, 201):
+                        summary.search_failures += 1
                         request_logger.warning(
                             "Search page returned unexpected status_code={} uri={}",
                             response.status_code,
                             request.target.uri,
+                        )
+                        event_log.write(
+                            "bronze.search.unexpected_status",
+                            target_id=request.target.target_id,
+                            status_code=response.status_code,
+                            artifact_id=artifact.artifact_id,
                         )
                         continue
 
@@ -229,10 +395,31 @@ class BronzeRunner:
                         len(page_targets),
                         round(perf_counter() - page_started_at, 3),
                     )
+                    event_log.write(
+                        "bronze.search.discovery_succeeded",
+                        target_id=request.target.target_id,
+                        discovered_count=len(page_targets),
+                        artifact_id=artifact.artifact_id,
+                    )
                     for target in page_targets:
-                        discovered_by_uri.setdefault(target.uri, target)
+                        discovered_by_uri.setdefault(
+                            target.uri,
+                            _with_parent_artifact(target=target, parent=artifact),
+                        )
 
-                except Exception:
+                except Exception as exc:
+                    summary.search_failures += 1
+                    summary.errors.append(
+                        f"search:{request.target.target_id}:{type(exc).__name__}: {exc}"
+                    )
+                    event_log.write(
+                        "bronze.search.failed",
+                        target_id=request.target.target_id,
+                        target_kind=request.target.kind.value,
+                        uri=request.target.uri,
+                        error_type=type(exc).__name__,
+                        error_message=str(exc),
+                    )
                     request_logger.exception(
                         "Exception while fetching or parsing search page uri={}",
                         request.target.uri,
@@ -253,11 +440,10 @@ class BronzeRunner:
         listing_targets: tuple[BronzeTarget, ...],
         context: BronzeRunContext,
         source_logger: Any,
-        target_dir: Path,
-    ) -> int:
-        store = BronzeArtifactStore(target_dir)
-        success_count = 0
-
+        store: BronzeArtifactStore,
+        summary: _SourceRunSummary,
+        event_log: _SourceEventLog,
+    ) -> None:
         traffic_profile = _traffic_profile_from_config(source_cfg)
         with source_class(
             targets=listing_targets,
@@ -277,22 +463,38 @@ class BronzeRunner:
                         len(listing_targets),
                         request.target.uri,
                     )
+                    event_log.write(
+                        "bronze.listing_detail.fetch_started",
+                        target_id=request.target.target_id,
+                        target_kind=request.target.kind.value,
+                        index=idx,
+                        total=len(listing_targets),
+                        uri=request.target.uri,
+                    )
                     response = listing_source.fetch(request)
+                    artifact = store.persist(context=context, response=response)
+                    summary.listing_artifacts_persisted += 1
+                    event_log.write(
+                        "bronze.listing_detail.artifact_persisted",
+                        index=idx,
+                        total=len(listing_targets),
+                        **_artifact_event_fields(artifact),
+                        elapsed_seconds=round(perf_counter() - detail_started_at, 3),
+                    )
                     if response.status_code == 200:
-                        artifact = store.persist(context=context, response=response)
-                        success_count += 1
-                        prop_id = artifact.payload_path.parent.name
+                        summary.listing_details_succeeded += 1
                         request_logger.info(
-                            "Saved listing detail index={} total={} property_id={} "
+                            "Saved listing detail index={} total={} artifact_id={} "
                             "payload_bytes={} payload_path={} elapsed_seconds={}",
                             idx,
                             len(listing_targets),
-                            prop_id,
+                            artifact.artifact_id,
                             len(response.payload),
                             str(artifact.payload_path),
                             round(perf_counter() - detail_started_at, 3),
                         )
                     else:
+                        summary.listing_failures += 1
                         request_logger.warning(
                             "Listing detail returned unexpected status_code={} "
                             "index={} total={} uri={}",
@@ -301,7 +503,29 @@ class BronzeRunner:
                             len(listing_targets),
                             request.target.uri,
                         )
-                except Exception:
+                        event_log.write(
+                            "bronze.listing_detail.unexpected_status",
+                            target_id=request.target.target_id,
+                            status_code=response.status_code,
+                            artifact_id=artifact.artifact_id,
+                            index=idx,
+                            total=len(listing_targets),
+                        )
+                except Exception as exc:
+                    summary.listing_failures += 1
+                    summary.errors.append(
+                        f"listing:{request.target.target_id}:{type(exc).__name__}: {exc}"
+                    )
+                    event_log.write(
+                        "bronze.listing_detail.failed",
+                        target_id=request.target.target_id,
+                        target_kind=request.target.kind.value,
+                        index=idx,
+                        total=len(listing_targets),
+                        uri=request.target.uri,
+                        error_type=type(exc).__name__,
+                        error_message=str(exc),
+                    )
                     request_logger.exception(
                         "Exception while fetching or storing listing detail "
                         "index={} total={} uri={}",
@@ -315,7 +539,7 @@ class BronzeRunner:
                 listing_source.traffic_snapshot(),
                 phase="listing_detail",
             )
-        return success_count
+        return None
 
     def _select_sources(self, source: str) -> dict[str, dict[str, Any]]:
         if source.lower() == "all":
@@ -371,6 +595,119 @@ class BronzeRunner:
         else:
             pages_needed = pages if pages is not None else 1
         return list(range(page_index_starts_at, page_index_starts_at + pages_needed))
+
+
+def _with_parent_artifact(*, target: BronzeTarget, parent: RawArtifact) -> BronzeTarget:
+    if target.metadata.get("artifact_origin") != "derived_from_parent_payload":
+        return target
+
+    metadata = {
+        **target.metadata,
+        "parent_artifact_id": parent.artifact_id,
+        "parent_target_id": parent.target_id,
+        "parent_payload_sha256": parent.payload_sha256,
+    }
+    return target.model_copy(update={"metadata": metadata})
+
+
+def _artifact_event_fields(artifact: RawArtifact) -> dict[str, Any]:
+    return {
+        "artifact_id": artifact.artifact_id,
+        "artifact_origin": artifact.artifact_origin,
+        "parent_artifact_id": artifact.parent_artifact_id,
+        "target_id": artifact.target_id,
+        "target_kind": artifact.target_kind.value,
+        "status_code": artifact.status_code,
+        "media_type": artifact.media_type,
+        "payload_size_bytes": artifact.payload_size_bytes,
+        "payload_sha256": artifact.payload_sha256,
+        "payload_path": str(artifact.payload_path),
+        "metadata_path": str(artifact.metadata_path),
+    }
+
+
+def _write_run_manifest(
+    *,
+    target_dir: Path,
+    context: BronzeRunContext,
+    summaries: dict[str, _SourceRunSummary],
+    selected_source: str,
+    limit: int | None,
+    pages: int | None,
+    effective_limit: int | None,
+    elapsed_seconds: float,
+    config_path: Path | None,
+    store: BronzeArtifactStore,
+) -> Path:
+    manifest_path = store.run_dir(context.run_id) / "manifest.json"
+    source_payloads = {
+        source_id: summary.to_json_ready_dict()
+        for source_id, summary in sorted(summaries.items())
+    }
+    manifest = {
+        "artifact_type": "bronze_run_manifest",
+        "run_id": context.run_id,
+        "status": _overall_status(tuple(summaries.values())),
+        "requested_at": context.requested_at.isoformat(),
+        "finished_at": datetime.now(UTC).isoformat(),
+        "elapsed_seconds": round(elapsed_seconds, 3),
+        "target_dir": str(target_dir),
+        "settings": {
+            "source": selected_source,
+            "limit": limit,
+            "pages": pages,
+            "effective_limit": effective_limit,
+            "config_path": str(config_path) if config_path is not None else None,
+        },
+        "totals": {
+            "search_targets_planned": sum(
+                summary.search_targets_planned for summary in summaries.values()
+            ),
+            "search_artifacts_persisted": sum(
+                summary.search_artifacts_persisted for summary in summaries.values()
+            ),
+            "listing_targets_discovered": sum(
+                summary.listing_targets_discovered for summary in summaries.values()
+            ),
+            "listing_targets_selected": sum(
+                summary.listing_targets_selected for summary in summaries.values()
+            ),
+            "listing_artifacts_persisted": sum(
+                summary.listing_artifacts_persisted for summary in summaries.values()
+            ),
+            "listing_details_succeeded": sum(
+                summary.listing_details_succeeded for summary in summaries.values()
+            ),
+            "search_failures": sum(summary.search_failures for summary in summaries.values()),
+            "listing_failures": sum(
+                summary.listing_failures for summary in summaries.values()
+            ),
+        },
+        "sources": source_payloads,
+    }
+    _write_json_atomic(manifest_path, manifest)
+    return manifest_path
+
+
+def _overall_status(summaries: tuple[_SourceRunSummary, ...]) -> str:
+    if not summaries:
+        return "failed"
+    statuses = {summary.status for summary in summaries}
+    if "failed" in statuses:
+        return "failed"
+    if "completed_with_warnings" in statuses:
+        return "completed_with_warnings"
+    return "completed"
+
+
+def _write_json_atomic(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f"{path.name}.tmp")
+    tmp_path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True, default=str),
+        encoding="utf-8",
+    )
+    tmp_path.replace(path)
 
 
 def _traffic_profile_from_config(source_cfg: dict[str, Any]) -> PolitenessProfile:

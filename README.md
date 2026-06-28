@@ -18,6 +18,17 @@ Por defecto la bajada se guarda en:
 data/bronze
 ```
 
+Layout Bronze por corrida:
+
+```text
+data/bronze/runs/{run_id}/manifest.json
+data/bronze/runs/{run_id}/{source}/{target_kind}/{target_id}/payload.*
+data/bronze/runs/{run_id}/{source}/{target_kind}/{target_id}/metadata.json
+data/bronze/runs/{run_id}/{source}/events.jsonl
+```
+
+Bronze persiste tanto las respuestas de busqueda como los detalles crudos.
+
 Fuentes actuales:
 
 ```text

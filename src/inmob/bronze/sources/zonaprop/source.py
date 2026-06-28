@@ -88,9 +88,6 @@ class ZonapropSource:
 
     def build_request(self, target: BronzeTarget) -> BronzeRequest:
         request = self._runtime.build_request(target)
-        if target.kind != TargetKind.API_ENDPOINT:
-            return request
-
         body = target.metadata.get("request_body")
         if body is None:
             return request
@@ -108,7 +105,7 @@ class ZonapropSource:
         embedded_payload = request.target.metadata.get(_EMBEDDED_PAYLOAD_METADATA_KEY)
         if embedded_payload is not None:
             return self._embedded_listing_response(request, embedded_payload)
-        if request.target.kind == TargetKind.API_ENDPOINT:
+        if request.target.metadata.get("api_url") == ZONAPROP_API_POSTINGS_URL:
             return self._fetch_api(request)
 
         raise ValueError(
@@ -141,6 +138,7 @@ class ZonapropSource:
         listing_id: str,
         public_url: str,
         posting_payload: dict[str, object] | None = None,
+        parent_json_path: str | None = None,
     ) -> BronzeTarget:
         """Build a Bronze target for a Zonaprop listing API payload."""
 
@@ -157,6 +155,9 @@ class ZonapropSource:
                 sort_keys=True,
                 separators=(",", ":"),
             )
+            metadata["artifact_origin"] = "derived_from_parent_payload"
+            if parent_json_path is not None:
+                metadata["parent_json_path"] = parent_json_path
 
         return BronzeTarget(
             target_id=f"zonaprop-listing-{listing_id}",
@@ -185,7 +186,7 @@ class ZonapropSource:
 
         return BronzeTarget(
             target_id=f"zonaprop-search-{criteria.target_key()}-page-{page}",
-            kind=TargetKind.API_ENDPOINT,
+            kind=TargetKind.SEARCH_RESULTS,
             uri=ZONAPROP_API_POSTINGS_URL,
             metadata={
                 "page": str(page),
@@ -238,7 +239,7 @@ class ZonapropSource:
         seen: set[str] = set()
         skipped_items = 0
         duplicate_items = 0
-        for posting in postings:
+        for idx, posting in enumerate(postings):
             if not isinstance(posting, dict):
                 skipped_items += 1
                 continue
@@ -258,6 +259,7 @@ class ZonapropSource:
                     listing_id=listing_id,
                     public_url=public_url,
                     posting_payload=posting,
+                    parent_json_path=f"$.listPostings[{idx}]",
                 )
             )
 
@@ -289,8 +291,11 @@ class ZonapropSource:
             media_type="application/json",
             headers={},
             capture_metadata={
-                "capture_strategy": "zonaprop_postings_api_embedded_listing",
+                "artifact_origin": "derived_from_parent_payload",
+                "capture_strategy": "zonaprop_postings_api_item",
                 "api_url": ZONAPROP_API_POSTINGS_URL,
+                "parent_artifact_id": metadata.get("parent_artifact_id", ""),
+                "parent_json_path": metadata.get("parent_json_path", ""),
             },
             payload=payload,
         )
