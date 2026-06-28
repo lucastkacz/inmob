@@ -15,7 +15,7 @@ from uuid import uuid4
 from loguru import logger
 
 from inmob.cli.bronze.config import DEFAULT_PROPERTY_LIMIT, DEFAULT_SOURCES_CONFIG
-from inmob.cli.bronze.store import PropertyFolderRawArtifactStore
+from inmob.cli.bronze.store import BronzeArtifactStore
 from inmob.bronze.contracts import BronzeRunContext, BronzeTarget, PolitenessProfile
 from inmob.bronze.traffic import DEFAULT_TRAFFIC_PROFILE, TrafficController, TrafficSnapshot
 
@@ -255,7 +255,7 @@ class BronzeRunner:
         source_logger: Any,
         target_dir: Path,
     ) -> int:
-        store = PropertyFolderRawArtifactStore(target_dir)
+        store = BronzeArtifactStore(target_dir)
         success_count = 0
 
         traffic_profile = _traffic_profile_from_config(source_cfg)

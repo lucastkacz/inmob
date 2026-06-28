@@ -1,4 +1,4 @@
-"""Raw artifact store for CLI Bronze property captures."""
+"""Artifact store for CLI Bronze property captures."""
 
 from __future__ import annotations
 
@@ -12,8 +12,8 @@ from loguru import logger
 from inmob.bronze.contracts import BronzeResponse, BronzeRunContext, RawArtifact
 
 
-class PropertyFolderRawArtifactStore:
-    """Stores raw payloads in property-specific folders.
+class BronzeArtifactStore:
+    """Stores Bronze payloads in property-specific folders.
 
     Structure:
     {root}/{source_id}/{property_id}/
@@ -57,7 +57,7 @@ class PropertyFolderRawArtifactStore:
 
         payload_sha = sha256(response.payload).hexdigest()
         store_logger.debug(
-            "Property raw payload written property_id={} payload_path={} payload_bytes={} "
+            "Bronze payload written property_id={} payload_path={} payload_bytes={} "
             "payload_sha256={}",
             prop_id,
             str(payload_path),
@@ -90,7 +90,7 @@ class PropertyFolderRawArtifactStore:
             encoding="utf-8",
         )
         store_logger.info(
-            "Property raw artifact persisted property_id={} payload_path={} metadata_path={}",
+            "Bronze artifact persisted property_id={} payload_path={} metadata_path={}",
             prop_id,
             str(payload_path),
             str(metadata_path),

@@ -10,8 +10,8 @@ import typer
 from loguru import logger
 
 from inmob.cli.bronze import (
+    DEFAULT_BRONZE_DATA_DIR,
     DEFAULT_PROPERTY_LIMIT,
-    DEFAULT_RAW_DATA_DIR,
     BronzeError,
     BronzeRunner,
 )
@@ -51,7 +51,7 @@ def ingest(
         help="Number of search result pages to scan.",
     ),
     target_dir: Path = typer.Option(
-        Path(DEFAULT_RAW_DATA_DIR),
+        Path(DEFAULT_BRONZE_DATA_DIR),
         "--target-dir",
         "-d",
         help="Output root directory where property subfolders are stored.",
@@ -132,10 +132,10 @@ def ingest(
 
 @app.command(name="silver")
 def silver(
-    raw_dir: Path = typer.Option(
-        Path(DEFAULT_RAW_DATA_DIR),
-        "--raw-dir",
-        help="Bronze raw artifact directory to process.",
+    bronze_dir: Path = typer.Option(
+        Path(DEFAULT_BRONZE_DATA_DIR),
+        "--bronze-dir",
+        help="Bronze artifact directory to process.",
     ),
     db_path: Path = typer.Option(
         Path("data/silver/inmob.sqlite"),
@@ -167,15 +167,15 @@ def silver(
     started_at = perf_counter()
     configure_logging(log_dir=log_dir, level=log_level, file_level=log_file_level)
     logger.info(
-        "Silver command started raw_dir={} db_path={} quarantine_dir={} log_dir={}",
-        str(raw_dir),
+        "Silver command started bronze_dir={} db_path={} quarantine_dir={} log_dir={}",
+        str(bronze_dir),
         str(db_path),
         str(quarantine_dir),
         str(log_dir),
     )
     try:
         results = SilverProcessingRunner().run(
-            raw_dir=raw_dir,
+            raw_dir=bronze_dir,
             db_path=db_path,
             quarantine_dir=quarantine_dir,
         )

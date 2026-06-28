@@ -19,7 +19,6 @@ from inmob.bronze.sources import (
 
 
 DEFAULT_BRONZE_DATA_DIR = "data/bronze"
-DEFAULT_RAW_DATA_DIR = DEFAULT_BRONZE_DATA_DIR
 DEFAULT_PROPERTY_LIMIT = 15
 
 # Targets "Capital Federal" / "CABA", buy/sale operation, sorted by newest first.

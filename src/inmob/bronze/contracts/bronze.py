@@ -141,7 +141,7 @@ class BronzeResponse(BaseModel):
 class RawArtifact(BaseModel):
     """Persisted Bronze artifact metadata.
 
-    The payload itself is stored beside this metadata by a RawArtifactStore.
+    The payload itself is stored beside this metadata by a Bronze artifact store.
     """
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
