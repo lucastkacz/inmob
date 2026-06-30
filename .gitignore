@@ -1,5 +1,6 @@
 .DS_Store
 docs/.obsidian/workspace.json
+.vscode/
 .venv/
 __pycache__/
 *.py[cod]
