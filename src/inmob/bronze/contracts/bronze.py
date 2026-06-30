@@ -138,10 +138,7 @@ class BronzeResponse(BaseModel):
 
 
 class RawArtifact(BaseModel):
-    """Persisted Bronze artifact metadata.
-
-    The payload itself is stored beside this metadata by a Bronze artifact store.
-    """
+    """Persisted Bronze artifact metadata."""
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
@@ -160,7 +157,7 @@ class RawArtifact(BaseModel):
     media_type: str | None
     payload_sha256: str = Field(min_length=64, max_length=64)
     payload_size_bytes: int = Field(ge=0)
-    payload_path: Path
+    payload_path: Path | None
     metadata_path: Path
     headers: dict[str, str] = Field(default_factory=dict)
     target_metadata: dict[str, str] = Field(default_factory=dict)
